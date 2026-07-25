@@ -151,6 +151,8 @@ declare class YybGo {
     uuid: string;
     name: string;
     address: string;
+    username: string;
+    password: string;
     private panel;
     private ready;
     constructor(options: {

@@ -191,6 +191,10 @@ const nodeRuntimePreloadScript = `
     return encoded ? "?" + encoded : "";
   }
 
+  function b64encode(s) {
+    return Buffer.from(String(s), "utf-8").toString("base64");
+  }
+
   function apiPath(path, prefix) {
     path = String(path || "").trim();
     if (!path) path = prefix;
@@ -385,12 +389,18 @@ const nodeRuntimePreloadScript = `
       this.uuid = this.panel.id || "";
       this.name = this.panel.name || "";
       this.address = String(this.panel.address || "").replace(/\/+$/, "");
+      this.username = this.panel.username || "";
+      this.password = this.panel.password || "";
     }
     async request(method, path, body, query) {
       await this.ready;
+      const headers = Object.assign({}, body == null ? {} : { "Content-Type": "application/json" });
+      if (this.username || this.password) {
+        headers["Authorization"] = "Basic " + b64encode(this.username + ":" + this.password);
+      }
       const resp = await fetch(this.address + apiPath(path, "") + queryString(query), {
         method: String(method || "GET").toUpperCase(),
-        headers: Object.assign({}, body == null ? {} : { "Content-Type": "application/json" }),
+        headers: headers,
         body: body == null ? undefined : JSON.stringify(body),
       });
       const text = await resp.text();

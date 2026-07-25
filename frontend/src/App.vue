@@ -2237,6 +2237,12 @@ function recordOptions(record?: Record<string, string>) {
           <Form.Item label="yyb-go 地址" required>
             <Input v-model:value="yybgo.form.address" placeholder="http://127.0.0.1:18787" />
           </Form.Item>
+          <Form.Item label="用户名（Basic Auth，选填）">
+            <Input v-model:value="yybgo.form.username" placeholder="留空则不发送认证" />
+          </Form.Item>
+          <Form.Item label="密码（Basic Auth，选填）">
+            <Input v-model:value="yybgo.form.password" type="password" placeholder="留空则不发送认证" />
+          </Form.Item>
           <Button @click="testYybGoPanel()" :loading="yybgo.testing">
             <template #icon><RefreshCw :size="16" /></template>检测连接
           </Button>
