@@ -7,7 +7,7 @@ RUN cd frontend && npm install
 COPY frontend ./frontend
 RUN mkdir -p core/admin && cd frontend && npm run build
 
-FROM golang:1.24-bookworm AS builder
+FROM golang:1.25-bookworm AS builder
 WORKDIR /src
 
 COPY go.mod go.sum ./
