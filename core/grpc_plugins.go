@@ -480,8 +480,6 @@ declare class YybGo {
 	uuid: string;
 	name: string;
 	address: string;
-	username: string;
-	password: string;
 	constructor(options: { id: number | string });
 	request(method: string, path: string, body?: any, query?: Record<string, any>): Promise<any>;
 	createQr(type: any): Promise<any>;

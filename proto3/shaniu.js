@@ -860,16 +860,12 @@ class YybGo {
         this.uuid = this.panel.id || "";
         this.name = this.panel.name || "";
         this.address = String(this.panel.address || "").replace(/\/+$/, "");
-        this.username = this.panel.username || "";
-        this.password = this.panel.password || "";
     }
     async request(method, path, body, query) {
         await this.ready;
         const headers = {};
         if (body !== undefined && body !== null)
             headers["Content-Type"] = "application/json";
-        if (this.username || this.password)
-            headers["Authorization"] = "Basic " + Buffer.from(this.username + ":" + this.password, "utf-8").toString("base64");
         const response = await fetch(`${this.address}${normalizeRuntimePath(path, "")}${queryString(query || {})}`, {
             method: String(method || "GET").toUpperCase(),
             headers,

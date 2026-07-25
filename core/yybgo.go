@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -23,8 +22,6 @@ type YybGoPanel struct {
 	ID            string `json:"id"`
 	Name          string `json:"name"`
 	Address       string `json:"address"`
-	Username      string `json:"username"`
-	Password      string `json:"password"`
 	CreatedAt     int    `json:"created_at"`
 	UpdatedAt     int    `json:"updated_at"`
 	LastCheckedAt int    `json:"last_checked_at"`
@@ -193,12 +190,6 @@ func testYybGoPanel(panel YybGoPanel) (*YybGoPanel, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, panel.Address, nil)
 	if err != nil {
 		return nil, err
-	}
-	panel.Username = strings.TrimSpace(panel.Username)
-	panel.Password = strings.TrimSpace(panel.Password)
-	if panel.Username != "" || panel.Password != "" {
-		auth := base64.StdEncoding.EncodeToString([]byte(panel.Username + ":" + panel.Password))
-		req.Header.Set("Authorization", "Basic "+auth)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
