@@ -1,6 +1,6 @@
 module github.com/melon0826/shaniu
 
-go 1.25.6
+go 1.25.0
 
 replace github.com/willf/bitset v1.2.0 => github.com/bits-and-blooms/bitset v1.2.0
 

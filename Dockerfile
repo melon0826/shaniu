@@ -1,36 +1,27 @@
-# syntax=docker/dockerfile:1.7
-
-FROM --platform=$BUILDPLATFORM node:24-bookworm-slim AS frontend
+FROM node:24-bookworm-slim AS frontend
 WORKDIR /src
 
 COPY frontend/package*.json ./frontend/
-RUN --mount=type=cache,target=/root/.npm \
-    cd frontend && if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN cd frontend && npm install
 
 COPY frontend ./frontend
 RUN mkdir -p core/admin && cd frontend && npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.5-bookworm AS builder
-ARG VERSION=dev
-ARG TARGETOS
-ARG TARGETARCH
+FROM golang:1.24-bookworm AS builder
 WORKDIR /src
 
 COPY go.mod go.sum ./
-RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+RUN go mod download
 
 COPY . .
 COPY --from=frontend /src/core/admin ./core/admin
 
-RUN --mount=type=cache,target=/go/pkg/mod \
-    --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build \
+RUN CGO_ENABLED=0 go build \
     -trimpath \
-    -ldflags="-s -w -X github.com/melon0826/shaniu/core.compiled_at=${VERSION}" \
+    -ldflags="-s -w" \
     -o /out/shaniu .
 
-FROM --platform=$TARGETPLATFORM node:24-bookworm-slim
+FROM node:24-bookworm-slim
 WORKDIR /app
 
 RUN apt-get update \
