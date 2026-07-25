@@ -1,6 +1,6 @@
 services:
   shaniu:
-    build: .
+    image: melon0826/shaniu:latest
     container_name: shaniu
     restart: unless-stopped
     ports:
