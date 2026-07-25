@@ -1,0 +1,90 @@
+package core
+
+import (
+	"errors"
+	"fmt"
+	"regexp"
+	"strings"
+
+	"github.com/beego/beego/v2/client/httplib"
+	"github.com/goccy/go-json"
+	"github.com/melon0826/shaniu/core/common"
+	"github.com/melon0826/shaniu/core/storage"
+	"github.com/melon0826/shaniu/utils"
+)
+
+// var plugin_path = "/etc/shaniu/public/"
+// var plugin_download_file = plugin_path + "download"
+
+func CheckPluginAddress(address string) error {
+	if !strings.HasSuffix(address, "list.json") {
+		address += "/api/plugins/list.json"
+	}
+	data, _ := httplib.Get(address).Bytes()
+	rr := RequestPluginResult{}
+	err := json.Unmarshal(data, &rr)
+	if IsCdle {
+		console.Error(err, address, string(data))
+	}
+	if !rr.Success {
+		return errors.New("无效的地址")
+	}
+	return nil
+}
+
+func initPluginPublish() {
+	storage.Watch(shaniu, "plugin_sublink", func(old, address, key string) *storage.Final {
+		if strings.HasPrefix(address, "link://") {
+			return nil
+		}
+		if err := CheckPluginAddress(address); err != nil {
+			return &storage.Final{
+				Error: err,
+			}
+		}
+		str, err := EncryptByAes(utils.JsonMarshal(common.PluginPublisher{
+			Address: address,
+			// MachineID: GetMachineID(),
+		}))
+		sublink := fmt.Sprintf("link://%s", str)
+		return &storage.Final{
+			Now:     sublink,
+			Message: sublink,
+			Error:   err,
+		}
+	})
+
+	// os.MkdirAll(plugin_download_file, 0666)
+	// os.WriteFile(plugin_path+"list.json", utils.JsonMarshal(GetPublicResponse()), 0666)
+	// for _, f := range Functions {
+	// 	if f.UUID != "" && f.Public {
+	// 		os.WriteFile(fmt.Sprintf("%s/%s.js", plugin_download_file, f.UUID), []byte(publicScript(plugins.GetString(f.UUID))), 0666)
+	// 	}
+	// }
+}
+
+func publicScript(str string) string {
+	su := &ScriptUtils{
+		script: str,
+	}
+	if version := su.GetValue("version"); regexp.MustCompile(`v\d+\.\d+\.\d`).FindString(version) != version {
+		su.SetValue("version", "v1.0.0")
+	}
+	if su.GetValue("author") == "" {
+		su.SetValue("author", "佚名")
+	}
+	if su.GetValue("desc") == "" {
+		su.SetValue("desc", "🐒这个人很懒什么都没有留下")
+	}
+	if su.GetValue("public") == "true" {
+		su.SetValue("public", "false")
+	}
+	if su.GetValue("title") == "" {
+		su.SetValue("title", "无名脚本")
+	}
+	if su.GetValue("encrypt") == "true" {
+		su.script = EncryptPlugin(su.script)
+	}
+	su.script = halfEct(su.script)
+	return su.script
+}

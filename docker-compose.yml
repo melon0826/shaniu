@@ -1,0 +1,13 @@
+services:
+  shaniu:
+    build: .
+    container_name: shaniu
+    restart: unless-stopped
+    ports:
+      - "8686:8686"
+    environment:
+      SHANIU_DATA_PATH: /data
+      SHANIU_PORT: "8686"
+    volumes:
+      - ./data:/data
+      - /var/run/docker.sock:/var/run/docker.sock

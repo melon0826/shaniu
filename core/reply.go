@@ -1,0 +1,253 @@
+package core
+
+import (
+	"io/ioutil"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/goccy/go-json"
+	"github.com/melon0826/shaniu/utils"
+)
+
+type Reply struct {
+	Index     int      `json:"index,omitempty"` // 排序
+	ID        int      `json:"id"`              // ID，主键
+	Nickname  string   `json:"nickname"`        // 类型 0全部 1用户 2群聊
+	Number    string   `json:"number"`          // 号码 明确用户和群聊
+	Priority  int      `json:"priority"`        // 决定 replies 排序，优先级越高排的越靠前
+	Keyword   string   `json:"keyword"`         // 关键词，模糊查询
+	Value     string   `json:"value"`           // 值，模糊查询
+	CreatedAt int      `json:"created_at"`      // 创建时间
+	Platforms []string `json:"platforms"`       // 平台
+}
+
+var replies []Reply //一切增删查改只需作用到这个变量
+var repliesLock sync.RWMutex
+
+func init() {
+	REPLY.Foreach(func(b1, b2 []byte) error {
+		repliesLock.Lock()
+		defer repliesLock.Unlock()
+		rp := Reply{}
+		err := json.Unmarshal(b2, &rp)
+		if err != nil {
+			return nil
+		}
+		replies = append(replies, rp)
+		sort.Slice(replies, func(i, j int) bool {
+			return replies[i].Priority > replies[j].Priority
+		})
+		return nil
+	})
+	GinApi(GET, "/api/reply/list", RequireAuth, func(ctx *gin.Context) {
+		repliesLock.RLock()
+		defer repliesLock.RUnlock()
+		page, _ := strconv.Atoi(ctx.DefaultQuery("current", "1"))
+		perPage, _ := strconv.Atoi(ctx.DefaultQuery("pageSize", "20"))
+		keyword := ctx.Query("keyword")
+		value := ctx.Query("value")
+		// class_ := ctx.Query("class")
+		// class := utils.Int(class_)
+		number := ctx.Query("number")
+		// filter replies based on the query parameters
+		filteredReplies := make([]Reply, 0, len(replies))
+		for _, reply := range replies {
+			if keyword != "" && !strings.Contains(reply.Keyword, keyword) {
+				continue
+			}
+			if value != "" && !strings.Contains(reply.Value, value) {
+				continue
+			}
+			// if class_ != "" && reply.Class != class {
+			// 	continue
+			// }
+			if number != "" && reply.Number != number {
+				continue
+			}
+			filteredReplies = append(filteredReplies, reply)
+		}
+		sort.Slice(filteredReplies, func(i, j int) bool {
+			return filteredReplies[i].CreatedAt > filteredReplies[j].CreatedAt
+		})
+		// paginate the filtered replies
+		start := (page - 1) * perPage
+		end := start + perPage
+		if end > len(filteredReplies) {
+			end = len(filteredReplies)
+		}
+		paginatedReplies := filteredReplies[start:end]
+		index := start + 1
+		for i := range paginatedReplies {
+			filteredReplies[i].Index = index
+			index++
+			if filteredReplies[i].Nickname == "" || len(filteredReplies[i].Platforms) == 0 {
+				nk := Nickname{ID: filteredReplies[i].Number}
+				nickname.First(&nk)
+				if nk.Value != "" && filteredReplies[i].Nickname == "" {
+					filteredReplies[i].Nickname = nk.Value
+				}
+				if nk.Platform != "" && len(filteredReplies[i].Platforms) == 0 {
+					filteredReplies[i].Platforms = []string{nk.Platform}
+				}
+			}
+		}
+		ApiList(ctx, paginatedReplies, len(filteredReplies), map[string]interface{}{
+			"page":      page,
+			"platforms": getPltsLabel(),
+		})
+	})
+
+	GinApi(POST, "/api/reply", RequireAuth, func(ctx *gin.Context) {
+		repliesLock.Lock()
+		defer repliesLock.Unlock()
+		var reply Reply
+		data, _ := ioutil.ReadAll(ctx.Request.Body)
+		var v = map[string]interface{}{}
+		if err := json.Unmarshal(data, &reply); err != nil {
+			ApiFail(ctx, err.Error())
+			return
+		}
+		json.Unmarshal(data, &v)
+		has := func(str string) bool {
+			_, ok := v[str]
+			return ok
+		}
+		if reply.ID < 0 {
+			reply.ID = 0
+		}
+		// find existing reply with the same ID
+		var existingReply *Reply
+		for i, r := range replies {
+			if r.ID == reply.ID {
+				existingReply = &replies[i]
+				break
+			}
+		}
+		if existingReply != nil {
+			// update existing reply
+			if has("nickname") {
+				existingReply.Nickname = reply.Nickname
+			}
+			if has("number") {
+				existingReply.Number = reply.Number
+			}
+			if has("keyword") {
+				existingReply.Keyword = reply.Keyword
+			}
+			if has("value") {
+				existingReply.Value = reply.Value
+			}
+			if has("priority") {
+				existingReply.Priority = reply.Priority
+			}
+			if has("platforms") {
+				existingReply.Platforms = reply.Platforms
+			}
+			reply = *existingReply
+			err := REPLY.Create(&reply)
+			if err != nil {
+				ApiFail(ctx, err.Error())
+				return
+			}
+		} else {
+			reply.CreatedAt = int(time.Now().Unix())
+			err := REPLY.Create(&reply)
+			if err != nil {
+				ApiFail(ctx, err.Error())
+				return
+			}
+			replies = append(replies, reply)
+		}
+		sort.Slice(replies, func(i, j int) bool {
+			return replies[i].Priority > replies[j].Priority
+		})
+		ApiOK(ctx, nil)
+	})
+	//删除功能
+	GinApi(DELETE, "/api/reply", RequireAuth, func(ctx *gin.Context) {
+		repliesLock.Lock()
+		defer repliesLock.Unlock()
+		id := utils.Int(ctx.Query("id"))
+		for i, r := range replies {
+			if r.ID == id {
+				REPLY.Set(r.ID, nil)
+				replies = append(replies[:i], replies[i+1:]...)
+				break
+			}
+		}
+		ApiOK(ctx, nil)
+	})
+}
+
+var REPLY = MakeBucket("reply")
+
+// // 能处理字符：你好，我是${ user.name }
+// func parseReply(str string) string {
+// 	re := regexp.MustCompile(`\$\{\s*([^\s{}]+)\s*\}`)
+// 	return re.ReplaceAllStringFunc(str, func(match string) string {
+// 		bk := match[2 : len(match)-1]
+// 		b_k := strings.Split(bk, ".")
+// 		if len(b_k) != 3 {
+// 			return fmt.Sprintf("${%s}", bk)
+// 		}
+// 		return MakeBucket(b_k[1]).GetString(b_k[2])
+// 	})
+// }
+
+// 能处理字符：你好，我是${ user.name ?? 6 }
+func parseReply2(str string) string {
+	re := regexp.MustCompile(`\$\{\s*([^{}]+)\s*\}`)
+	return re.ReplaceAllStringFunc(str, func(match string) string {
+		expr := strings.TrimSpace(match[2 : len(match)-1])
+		if value, ok := parseReplyBucketExpression(expr, nil); ok {
+			return value
+		}
+		return match
+	})
+}
+
+// rule 专用
+func parseReply3(str string, f func(string, string)) string {
+	ks := map[string]bool{}
+	re := regexp.MustCompile(`\$\{\s*([^{}]+)\s*\}`)
+	return re.ReplaceAllStringFunc(str, func(match string) string {
+		expr := strings.TrimSpace(match[2 : len(match)-1])
+		if value, ok := parseReplyBucketExpression(expr, func(bucket, key string) {
+			id := bucket + "." + key
+			if !ks[id] {
+				ks[id] = true
+				f(bucket, key)
+			}
+		}); ok {
+			return value
+		}
+		return match
+	})
+}
+
+func parseReplyBucketExpression(expr string, watch func(string, string)) (string, bool) {
+	parts := strings.SplitN(expr, "??", 2)
+	ref := strings.TrimSpace(parts[0])
+	defaultValue := ""
+	if len(parts) == 2 {
+		defaultValue = strings.TrimSpace(parts[1])
+		defaultValue = strings.Trim(defaultValue, `"'`)
+	}
+	match := regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)$`).FindStringSubmatch(ref)
+	if len(match) != 3 {
+		return "", false
+	}
+	if watch != nil {
+		watch(match[1], match[2])
+	}
+	value := MakeBucket(match[1]).GetString(match[2])
+	if value == "" {
+		value = defaultValue
+	}
+	return value, true
+}

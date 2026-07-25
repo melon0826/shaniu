@@ -1,0 +1,418 @@
+package core
+
+import (
+	"archive/zip"
+	"bytes"
+	"context"
+	"embed"
+	"fmt"
+	"io"
+	"mime"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/gin-contrib/gzip"
+	"github.com/gin-gonic/gin"
+	"github.com/melon0826/shaniu/core/logs"
+	"github.com/melon0826/shaniu/core/storage"
+	"github.com/melon0826/shaniu/utils"
+)
+
+//go:embed admin/*
+var static embed.FS
+
+var Handle = make(map[string]func(c *gin.Context))
+
+func Cors() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		method := c.Request.Method
+		if origin := allowedCORSOrigin(c); origin != "" {
+			c.Header("Access-Control-Allow-Origin", origin)
+			c.Header("Access-Control-Allow-Credentials", "true")
+			c.Header("Vary", "Origin")
+		}
+		c.Header("Access-Control-Allow-Headers", "Content-Type,AccessToken,X-CSRF-Token, Authorization, Token")
+		c.Header("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE,UPDATE") //服务器支持的所有跨域请求的方
+		c.Header("Access-Control-Expose-Headers", "Content-Length, Access-Control-Allow-Origin, Access-Control-Allow-Headers, Content-Type")
+		if method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+		}
+		// 处理请求
+		c.Next()
+	}
+}
+
+func allowedCORSOrigin(c *gin.Context) string {
+	origin := strings.TrimSpace(c.GetHeader("Origin"))
+	if origin == "" {
+		return ""
+	}
+	configured := strings.TrimSpace(firstNonEmpty(os.Getenv("SHANIU_CORS_ORIGINS"), shaniu.GetString("cors_origins")))
+	if configured != "" {
+		for _, item := range strings.Split(configured, ",") {
+			if strings.TrimSpace(item) == origin {
+				return origin
+			}
+		}
+		return ""
+	}
+	if strings.HasPrefix(origin, "http://127.0.0.1:") ||
+		strings.HasPrefix(origin, "http://localhost:") ||
+		strings.HasPrefix(origin, "http://[::1]:") {
+		return origin
+	}
+	return ""
+}
+
+func SecurityHeaders() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Header("X-Frame-Options", "SAMEORIGIN")
+		c.Header("Referrer-Policy", "strict-origin-when-cross-origin")
+		c.Header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+		c.Next()
+	}
+}
+
+var Server *gin.Engine
+
+func initWeb() {
+	for _, arg := range os.Args { //处理升级
+		if arg == "-r" { //准备程序->原程序
+			rfix := ".ready.exe"
+			ofix := ".exe"
+			if strings.Contains(os.Args[0], rfix) {
+				err := utils.CopyFile(utils.ProcessName, strings.Replace(utils.ProcessName, rfix, ofix, -1))
+				if err == nil {
+					utils.Daemon("reset")
+				}
+			} else {
+				os.Remove(strings.ReplaceAll(os.Args[0], ofix, rfix))
+			}
+			continue
+		}
+	}
+	gin.SetMode(gin.ReleaseMode)
+	Server = gin.New()
+	// Server.Use(gin.Recovery())
+	Server.Use(Cors())
+	Server.Use(SecurityHeaders())
+	Server.Use(gzip.Gzip(gzip.DefaultCompression))
+	Server.GET("/api/file/:filename", FindFile)
+	Server.GET("/api/decode/:random", Base642Binary)
+
+	Server.GET("/api/plugins/download", func(c *gin.Context) {
+		uuid := c.Query("uuid")
+		for _, f := range Functions {
+			if f.UUID == uuid && f.Public {
+				plugin_downloads.Set(f.UUID, plugin_downloads.GetInt(f.UUID)+1)
+				if !isNameUuid(f.UUID) {
+					c.String(200, publicScript(plugins.GetString(f.UUID)))
+					return
+				} else {
+					dir := filepath.Dir(f.Path)
+					if _, err := os.Stat(dir); err != nil { //执行压缩
+						return
+					}
+					dir = strings.ReplaceAll(dir, "\\", "/")
+					ss := strings.Split(dir, "/")
+					name := ss[len(ss)-1]
+					buf := new(bytes.Buffer)
+					w := zip.NewWriter(buf)
+					// dir = strings.Replace(dir, utils.ExecPath+"", ".", 1)
+					err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+						if err != nil {
+							return err
+						}
+
+						if info.IsDir() && info.Name() == "node_modules" {
+							return filepath.SkipDir
+						}
+
+						if info.IsDir() {
+							return nil
+						}
+
+						// 将路径转换为相对路径
+						relPath, err := filepath.Rel(dir, path)
+						is_index := relPath == "main.js"
+
+						relPath = name + "/" + relPath
+						if err != nil {
+							return err
+						}
+
+						file, err := os.Open(path)
+						if err != nil {
+							return err
+						}
+						defer file.Close()
+
+						fh, err := zip.FileInfoHeader(info)
+						if err != nil {
+							return err
+						}
+
+						// 使用相对路径作为文件名
+						fh.Name = relPath
+
+						wr, err := w.CreateHeader(fh)
+						if err != nil {
+							return err
+						}
+						if is_index {
+							var data []byte
+							data, err = io.ReadAll(file)
+							if err != nil {
+								return err
+							}
+							su := &ScriptUtils{
+								script: string(data),
+							}
+							if su.GetValue("public") == "true" {
+								su.SetValue("public", "false")
+							}
+							_, err = wr.Write([]byte(su.script))
+						} else {
+							_, err = io.Copy(wr, file)
+						}
+						return err
+					})
+					if err != nil {
+						c.String(http.StatusInternalServerError, fmt.Sprintf("ZIP creation failed: %s", err))
+						return
+					}
+					err = w.Close()
+					if err != nil {
+						c.String(http.StatusInternalServerError, fmt.Sprintf("ZIP creation failed: %s", err))
+						return
+					}
+					c.Data(http.StatusOK, "application/zip", buf.Bytes())
+					// zippath := utils.ExecPath + "/public/" + f.UUID + ".zip"
+					// file, err := os.Open(zippath)
+					// if err != nil {
+					// 	return
+					// }
+					// defer file.Close()
+					// c.Header("Content-Type", "application/zip")
+					// io.Copy(c.Writer, file)
+					return
+				}
+			}
+		}
+	})
+	Server.GET("/api/plugins/download/:uuid", func(c *gin.Context) {
+		uuid := c.Param("uuid")
+		for _, f := range Functions {
+			if f.UUID == uuid && f.Public {
+				plugin_downloads.Set(f.UUID, plugin_downloads.GetInt(f.UUID)+1)
+				c.String(200, publicScript(plugins.GetString(f.UUID)))
+				return
+			}
+		}
+	})
+	Server.NoRoute(func(c *gin.Context) {
+		// if c.Request.URL.Path != "/api/web_chat" {
+		// 	logs.Debug(c.Request.URL.Path)
+		// }
+		if c.Request.Method == http.MethodGet && c.Request.URL.Path == "/" {
+			c.Redirect(http.StatusFound, "/admin")
+			return
+		}
+		c.Status(200)
+		if strings.HasPrefix(c.Request.URL.Path, "/admin") {
+			if file, err := static.Open(strings.Trim(c.Request.URL.Path, "/")); err == nil {
+				fs, _ := file.Stat()
+				if !fs.IsDir() {
+					defer file.Close()
+					c.Header("cache-control", "max-age=864000")
+					if contentType := mime.TypeByExtension(filepath.Ext(c.Request.URL.Path)); contentType != "" {
+						c.Header("Content-Type", contentType)
+					}
+					io.Copy(c.Writer, file)
+					return
+				} else {
+					file.Close()
+				}
+			}
+			data, err := static.ReadFile("admin/index.html")
+			if err == nil {
+				c.Header("Content-Type", "text/html; charset=utf-8")
+				c.Writer.Write(data)
+				return
+			}
+		}
+		for _, req := range ss {
+			if c.Request.URL.Path == req.Path && (req.Method == c.Request.Method || req.Method == "ANY") {
+				req.Handle(c)
+				return
+			}
+		}
+		c.String(404, "页面被喵咪劫走了") //
+		//开启代理模式
+
+		// handleHTTP(c.Writer, c.Request)
+	})
+
+	port := shaniu.GetInt("port")
+	if envPort := os.Getenv("SHANIU_PORT"); envPort != "" {
+		if p, err := strconv.Atoi(envPort); err == nil && p > 0 {
+			port = p
+			shaniu.Set("port", port)
+		}
+	}
+	if port == 0 {
+		shaniu.Set("port", 8080)
+		port = 8080
+	}
+	srvs := []*http.Server{{
+		Addr:    ":" + fmt.Sprint(port),
+		Handler: Server,
+	}}
+
+	storage.Watch(shaniu, "port", func(old, new, key string) *storage.Final {
+		if new == "" {
+			new = "8080"
+		}
+		if old == new {
+			return nil
+		}
+		port := new
+		// console.Log("port", new)
+		srv := &http.Server{
+			Addr:    ":" + port,
+			Handler: Server,
+		}
+		var ch = make(chan error, 1)
+		srvs = append(srvs, srv)
+
+		go func() {
+			logs.Info("Http服务(%v)重新运行", port)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logs.Error("Http服务(%v)运行失败：%s", port, err.Error())
+				ch <- err
+			}
+		}()
+		select {
+		case err := <-ch:
+			srvs = srvs[:len(srvs)-1]
+			return &storage.Final{
+				Error: err,
+			}
+		case <-time.After(1 * time.Millisecond * 100):
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := srvs[0].Shutdown(ctx); err == nil {
+				logs.Info("Http服务(%v)关闭", old)
+			}
+			srvs = srvs[1:]
+		}
+		return &storage.Final{
+			Now: new,
+		}
+	})
+
+	// logs.Info("Http服务(%s)开始运行", port)
+
+	logs.Info("管理员面板:")
+	logs.Info("  > 本机: http://localhost:%d/admin", port)
+	local_ip := getLocalIP()
+	logs.Info("  > 局域网: http://%v:%d/admin", local_ip, port)
+	ip := shaniu.GetString("ip")
+	if ip != "" {
+		logs.Info("  > 广域网: http://%v:%d/admin", ip, port)
+	}
+	shaniu.Set("local_ip", local_ip)
+	go func() {
+		if err := srvs[0].ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logs.Error("Http服务运行失败：%s", err.Error())
+		}
+	}()
+}
+
+type Req struct {
+	Method string
+	Path   string
+	Handle func(c *gin.Context)
+}
+
+var ss = []Req{}
+
+type Auth struct {
+	ID        int
+	IP        string
+	UserAgent string
+	Token     string
+	CreatedAt int
+	ExpiredAt int
+}
+
+const (
+	GET    = "GET"
+	POST   = "POST"
+	DELETE = "DELETE"
+	PUT    = "PUT"
+	ANY    = "ANY"
+)
+
+func GinApi(method string, path string, fs ...func(c *gin.Context)) {
+	ss = append(ss, Req{
+		Method: method,
+		Path:   path,
+		Handle: func(c *gin.Context) {
+			defer func() {
+				if err := recover(); err != nil {
+					if !c.Writer.Written() {
+						ApiError(c, http.StatusInternalServerError, fmt.Sprint(err))
+					}
+				}
+			}()
+			for _, f := range fs {
+				f(c)
+				if c.IsAborted() {
+					return
+				}
+			}
+		},
+	})
+}
+
+func getLocalIP() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return "127.0.0.1"
+	}
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 {
+			continue // interface down
+		}
+		if iface.Flags&net.FlagLoopback != 0 {
+			continue // loopback interface
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			if ip.To4() != nil {
+				return ip.String()
+			}
+		}
+	}
+	return "127.0.0.1"
+}
