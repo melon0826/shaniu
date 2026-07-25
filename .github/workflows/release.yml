@@ -142,13 +142,23 @@ jobs:
             publish_latest="true"
           fi
           image="ghcr.io/melon0826/shaniu"
+          dockerhub_image="docker.io/melon0826/shaniu"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "image=${image}" >> "${GITHUB_OUTPUT}"
+          echo "dockerhub_image=${dockerhub_image}" >> "${GITHUB_OUTPUT}"
           {
-            echo "docker_tags<<EOF"
+            echo "ghcr_tags<<EOF"
             echo "${image}:${version}"
             if [[ "${publish_latest}" == "true" ]]; then
               echo "${image}:latest"
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            echo "dockerhub_tags<<EOF"
+            echo "${dockerhub_image}:${version}"
+            if [[ "${publish_latest}" == "true" ]]; then
+              echo "${dockerhub_image}:latest"
             fi
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
@@ -163,7 +173,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Push to GitHub Container Registry
         uses: docker/build-push-action@cb941d0b895b09c17fa011d41c411b33c752cf28
         with:
           context: .
@@ -173,7 +183,33 @@ jobs:
             VERSION=${{ steps.vars.outputs.version }}
           cache-from: type=gha,scope=shaniu-docker
           cache-to: type=gha,mode=max,scope=shaniu-docker
-          tags: ${{ steps.vars.outputs.docker_tags }}
+          tags: ${{ steps.vars.outputs.ghcr_tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.vars.outputs.version }}
+
+      - name: Log in to Docker Hub
+        id: dockerhub_login
+        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7
+        with:
+          registry: docker.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+        continue-on-error: true
+
+      - name: Push to Docker Hub
+        if: steps.dockerhub_login.outcome == 'success'
+        uses: docker/build-push-action@cb941d0b895b09c17fa011d41c411b33c752cf28
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.vars.outputs.version }}
+          cache-from: type=gha,scope=shaniu-docker
+          cache-to: type=gha,mode=max,scope=shaniu-docker
+          tags: ${{ steps.vars.outputs.dockerhub_tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}

@@ -1,6 +1,6 @@
 services:
   shaniu:
-    image: ghcr.io/melon0826/shaniu:latest
+    image: melon0826/shaniu:latest
     container_name: shaniu
     restart: unless-stopped
     ports:
