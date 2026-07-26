@@ -71,6 +71,10 @@ var nodeSillygirlRuntimeDependencies = map[string]string{
 	"google-protobuf": "^3.21.2",
 }
 
+var nodePnpmOnlyBuiltDependencies = []string{
+	"protobufjs",
+}
+
 func init() {
 	GinApi(GET, "/api/node/dependencies", RequireAuth, func(ctx *gin.Context) {
 		pluginName := strings.TrimSpace(ctx.Query("plugin"))
@@ -759,9 +763,11 @@ func ensureNodePackageJSON(dir, pluginName string) error {
 			return fmt.Errorf("package.json 解析失败：%v", err)
 		}
 		if changed {
-			return os.WriteFile(path, normalized, 0644)
+			if err := os.WriteFile(path, normalized, 0644); err != nil {
+				return err
+			}
 		}
-		return nil
+		return ensureNodePnpmWorkspace(dir)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
@@ -775,7 +781,10 @@ func ensureNodePackageJSON(dir, pluginName string) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0644)
+	if err := os.WriteFile(path, append(data, '\n'), 0644); err != nil {
+		return err
+	}
+	return ensureNodePnpmWorkspace(dir)
 }
 
 func ensureNodeSillygirlModule(dir string) error {
@@ -846,6 +855,20 @@ func nodeSillygirlRuntimeDependencyCopy() map[string]string {
 		deps[name] = version
 	}
 	return deps
+}
+
+func ensureNodePnpmWorkspace(dir string) error {
+	path := filepath.Join(dir, "pnpm-workspace.yaml")
+	content := "packages:\n  - .\nallowBuilds:\n"
+	for _, name := range nodePnpmOnlyBuiltDependencies {
+		content += fmt.Sprintf("  %s: true\n", name)
+	}
+	if data, err := os.ReadFile(path); err == nil && string(data) == content {
+		return nil
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0644)
 }
 
 func normalizeNodePackageJSON(data []byte, pluginName string) ([]byte, bool, error) {

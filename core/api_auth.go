@@ -244,6 +244,7 @@ func init() {
 			"adapters":     overviewAdapterStatuses(),
 			"integrations": overviewIntegrationStatuses(),
 			"version":      overviewVersionInfo(),
+			"user_stats":   overviewUserStats(),
 		})
 	})
 }
@@ -255,6 +256,29 @@ func overviewVersionInfo() map[string]interface{} {
 		"remote":     latest,
 		"source":     source,
 		"repository": appRepository,
+	}
+}
+
+func overviewUserStats() map[string]interface{} {
+	rows, err := listNormalUsers()
+	if err != nil {
+		return map[string]interface{}{
+			"total": 0,
+			"today": 0,
+			"error": err.Error(),
+		}
+	}
+	now := time.Now()
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).Unix()
+	today := 0
+	for _, row := range rows {
+		if row.CreatedAt >= startOfDay {
+			today++
+		}
+	}
+	return map[string]interface{}{
+		"total": len(rows),
+		"today": today,
 	}
 }
 

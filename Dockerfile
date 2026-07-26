@@ -2,21 +2,25 @@ FROM node:24-bookworm-slim AS frontend
 WORKDIR /src
 
 COPY frontend/package*.json ./frontend/
-RUN cd frontend && npm install
+RUN --mount=type=cache,target=/root/.npm \
+    cd frontend && if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
 COPY frontend ./frontend
 RUN mkdir -p core/admin && cd frontend && npm run build
 
-FROM golang:1.25-bookworm AS builder
+FROM golang:1.26.5-bookworm AS builder
 WORKDIR /src
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download
 
 COPY . .
 COPY --from=frontend /src/core/admin ./core/admin
 
-RUN CGO_ENABLED=0 go build \
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 go build \
     -trimpath \
     -ldflags="-s -w" \
     -o /out/shaniu .
@@ -32,7 +36,8 @@ RUN apt-get update \
     && mkdir -p /app/node-runtime \
     && cd /app/node-runtime \
     && printf '{"name":"shaniu-node-runtime","private":true,"version":"1.0.0"}\n' > package.json \
-    && pnpm add --ignore-scripts @grpc/grpc-js@^1.8.18 express@^4.21.2 google-protobuf@^3.21.2 \
+    && printf 'packages:\n  - .\nallowBuilds:\n  protobufjs: true\n' > pnpm-workspace.yaml \
+    && pnpm --allow-build=protobufjs add @grpc/grpc-js@^1.8.18 express@^4.21.2 google-protobuf@^3.21.2 \
     && mkdir -p /data/plugins /data/conf \
     && ln -s /data/plugins /app/plugins \
     && ln -s /data/conf /app/conf
