@@ -33,9 +33,10 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.express = exports.console = exports.utils = exports.sender = exports.ShaniuPluginConfig = exports.shaniuCreateSchema = exports.DaiDai = exports.YybGo = exports.QingLong = exports.Bucket = exports.Adapter = void 0;
+exports.console = exports.utils = exports.sender = exports.ShaniuPluginConfig = exports.shaniuCreateSchema = exports.DaiDai = exports.YybGo = exports.QingLong = exports.Bucket = exports.Adapter = void 0;
 exports.form = form;
 exports.pluginConfigDefaults = pluginConfigDefaults;
+exports.pushAdmin = pushAdmin;
 exports.sleep = sleep;
 exports.restart = restart;
 exports.update = update;
@@ -53,15 +54,6 @@ let plugin_id = process.env?.PLUGIN_ID ?? "";
 const metadata = new grpc_1.Metadata();
 metadata.add("RUNTIME_ID", process.env?.RUNTIME_ID ?? "");
 metadata.add("shaniu-runtime-token", process.env?.SHANIU_GRPC_TOKEN ?? "");
-const express = new Proxy(function () { }, {
-    apply(_target, thisArg, args) {
-        return require("express").apply(thisArg, args);
-    },
-    get(_target, prop) {
-        return require("express")[prop];
-    },
-});
-exports.express = express;
 class Sender {
     uuid;
     destoried = false;
@@ -863,7 +855,7 @@ class YybGo {
     }
     async request(method, path, body, query) {
         await this.ready;
-        const headers = {};
+        const headers = { auth: String(this.panel.api_auth || "") };
         if (body !== undefined && body !== null)
             headers["Content-Type"] = "application/json";
         const response = await fetch(`${this.address}${normalizeRuntimePath(path, "")}${queryString(query || {})}`, {
@@ -1177,6 +1169,60 @@ class Adapter {
 exports.Adapter = Adapter;
 let sender = new Sender(process.env?.SENDER_ID ?? "");
 exports.sender = sender;
+function normalizePushAdminList(value) {
+    if (Array.isArray(value)) {
+        return value.map((item) => String(item || "").trim()).filter(Boolean);
+    }
+    return String(value || "")
+        .split(/[&,\s]+/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+}
+function uniqueStrings(values) {
+    return Array.from(new Set(values.filter(Boolean)));
+}
+async function pushAdmin(content, options = {}) {
+    const result = [];
+    const requestedPlatforms = uniqueStrings([
+        ...normalizePushAdminList(options.platform),
+        ...normalizePushAdminList(options.platforms),
+    ]);
+    const botId = String(options.botId || options.bot_id || "").trim();
+    const explicitUsers = uniqueStrings([
+        ...normalizePushAdminList(options.userIds),
+        ...normalizePushAdminList(options.users),
+    ]);
+    const platformSource = requestedPlatforms.length
+        ? requestedPlatforms
+        : await new Bucket("shaniu").buckets();
+    for (const platform of uniqueStrings(platformSource)) {
+        const users = explicitUsers.length
+            ? explicitUsers
+            : normalizePushAdminList(await new Bucket(platform).get("masters", ""));
+        if (!users.length)
+            continue;
+        const adapter = new Adapter({ platform, bot_id: botId });
+        for (const userId of users) {
+            try {
+                const messageId = await adapter.push({
+                    user_id: userId,
+                    content,
+                });
+                result.push({ platform, bot_id: botId, user_id: userId, message_id: messageId });
+            }
+            catch (error) {
+                result.push({
+                    platform,
+                    bot_id: botId,
+                    user_id: userId,
+                    error: error?.message || String(error),
+                });
+            }
+        }
+    }
+    return result;
+}
+globalThis.pushAdmin = pushAdmin;
 async function sleep(ms = 1000) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }

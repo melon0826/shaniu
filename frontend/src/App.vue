@@ -3,31 +3,36 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch
 import { Compartment, EditorState } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { javascript } from '@codemirror/lang-javascript';
+import { python } from '@codemirror/lang-python';
 import { oneDark } from '@codemirror/theme-one-dark';
 import { basicSetup } from 'codemirror';
-import {
-  Alert,
-  App as AntApp,
-  Button,
-  Card,
-  Form,
-  Input,
-  InputNumber,
-  Layout,
-  Menu,
-  Modal,
-  Popconfirm,
-  Select,
-  Space,
-  Spin,
-  Statistic,
-  Switch,
-  Table,
-  Tabs,
-  Tag,
-  Typography,
-  message,
-} from 'ant-design-vue';
+import Alert from 'ant-design-vue/es/alert';
+import AntApp from 'ant-design-vue/es/app';
+import Button from 'ant-design-vue/es/button';
+import Card from 'ant-design-vue/es/card';
+import Col from 'ant-design-vue/es/col';
+import ConfigProvider from 'ant-design-vue/es/config-provider';
+import Drawer from 'ant-design-vue/es/drawer';
+import Empty from 'ant-design-vue/es/empty';
+import Form from 'ant-design-vue/es/form';
+import Input from 'ant-design-vue/es/input';
+import InputNumber from 'ant-design-vue/es/input-number';
+import Layout from 'ant-design-vue/es/layout';
+import Menu from 'ant-design-vue/es/menu';
+import message from 'ant-design-vue/es/message';
+import Modal from 'ant-design-vue/es/modal';
+import Popconfirm from 'ant-design-vue/es/popconfirm';
+import Row from 'ant-design-vue/es/row';
+import Segmented from 'ant-design-vue/es/segmented';
+import Select from 'ant-design-vue/es/select';
+import Space from 'ant-design-vue/es/space';
+import Spin from 'ant-design-vue/es/spin';
+import Statistic from 'ant-design-vue/es/statistic';
+import Switch from 'ant-design-vue/es/switch';
+import Table from 'ant-design-vue/es/table';
+import Tabs from 'ant-design-vue/es/tabs';
+import Tag from 'ant-design-vue/es/tag';
+import Typography from 'ant-design-vue/es/typography';
 import zhCN from 'ant-design-vue/es/locale/zh_CN';
 import {
   Bot,
@@ -58,7 +63,7 @@ import {
   Wand2,
 } from 'lucide-vue-next';
 import { ApiError, clearAuthToken, del, get, post, put, readStorage, saveStorage, setAuthToken } from './api';
-import type { CarryGroup, CurrentUser, DaidaiPanel, Master, PluginInfo, QinglongPanel, Reply, YybGoPanel, Task } from './types';
+import type { AdminUserRow, CarryGroup, CurrentUser, DaidaiPanel, Master, PluginInfo, QinglongPanel, Reply, YybGoPanel, Task } from './types';
 import { timestamp } from './utils';
 
 type ApiEnvelope<T> = {
@@ -80,16 +85,33 @@ type PageKey =
   | 'dependencies'
   | 'plugins'
   | 'storage'
-  | 'reply'
+  | 'users'
   | 'tasks'
-  | 'carry'
-  | 'qinglong'
-  | 'yybgo'
-  | 'daidai'
+  | 'message-tools'
+  | 'containers'
   | 'masters'
-  | 'messages'
   | 'plugin-configs'
   | 'settings';
+
+type ContainerKind = 'qinglong' | 'daidai' | 'yybgo';
+type MessageToolKind = 'carry' | 'reply' | 'messages';
+
+const validPages: PageKey[] = [
+  'welcome',
+  'scripts',
+  'dependencies',
+  'plugins',
+  'storage',
+  'users',
+  'tasks',
+  'message-tools',
+  'containers',
+  'masters',
+  'plugin-configs',
+  'settings',
+];
+const legacyContainerPages: ContainerKind[] = ['qinglong', 'daidai', 'yybgo'];
+const legacyMessageToolPages: MessageToolKind[] = ['carry', 'reply', 'messages'];
 
 const starter = `/**
  * @title 新脚本
@@ -104,6 +126,8 @@ s.reply("pong");
 const user = ref<CurrentUser | null>(null);
 const booting = ref(true);
 const page = ref<PageKey>(pageFromPath());
+const containerKind = ref<ContainerKind>(containerKindFromPath());
+const messageToolKind = ref<MessageToolKind>(messageToolKindFromPath());
 const selectedScriptId = ref(scriptIdFromPath());
 const mobileMenuOpen = ref(false);
 const loginModel = reactive({ username: 'admin', password: '' });
@@ -141,7 +165,7 @@ const overviewAdapters = computed(() => {
 const overviewIntegrations = computed(() => {
   const defaults = [
     { key: 'qinglong', label: '青龙容器' },
-    { key: 'yybgo', label: 'yyb-go' },
+    { key: 'yybgo', label: 'yybgo' },
     { key: 'daidai', label: '呆呆容器' },
   ];
   const rows = user.value?.integrations || {};
@@ -159,12 +183,16 @@ const overviewIntegrations = computed(() => {
 const overviewVersion = computed(() => {
   const info = user.value?.version || {};
   return {
-    local: info.local || '0.1.0',
-    remote: info.remote || info.local || '0.1.0',
+    local: info.local || '0.1.9',
+    remote: info.remote || info.local || '0.1.9',
     source: info.source || 'reserved',
-    repository: info.repository || 'https://github.com/melon0826/shaniu',
+    repository: info.repository || 'https://github.com/smallfawn/shaniu',
   };
 });
+const overviewUserStats = computed(() => ({
+  total: user.value?.user_stats?.total || 0,
+  today: user.value?.user_stats?.today || 0,
+}));
 
 const menuItems = [
   { key: 'welcome', label: '概览', icon: () => h(Home, { size: 16 }) },
@@ -173,21 +201,35 @@ const menuItems = [
   { key: 'plugins', label: '插件市场', icon: () => h(Plug, { size: 16 }) },
   { key: 'plugin-configs', label: '插件配置', icon: () => h(Boxes, { size: 16 }) },
   { key: 'storage', label: '存储', icon: () => h(Database, { size: 16 }) },
-  { key: 'reply', label: '回复', icon: () => h(MessageSquare, { size: 16 }) },
+  { key: 'users', label: '用户管理', icon: () => h(User, { size: 16 }) },
+  { key: 'message-tools', label: '转发/回复/监听', icon: () => h(MessageSquare, { size: 16 }) },
   { key: 'tasks', label: '定时任务', icon: () => h(ClipboardList, { size: 16 }) },
-  { key: 'carry', label: '搬运', icon: () => h(Radio, { size: 16 }) },
-  { key: 'qinglong', label: '青龙容器', icon: () => h(Server, { size: 16 }) },
-  { key: 'yybgo', label: 'yyb-go', icon: () => h(Server, { size: 16 }) },
-  { key: 'daidai', label: '呆呆面板', icon: () => h(Server, { size: 16 }) },
+  { key: 'containers', label: '容器管理', icon: () => h(Server, { size: 16 }) },
   { key: 'masters', label: '管理员', icon: () => h(ShieldCheck, { size: 16 }) },
-  { key: 'messages', label: '消息控制', icon: () => h(Boxes, { size: 16 }) },
   { key: 'settings', label: '基础设置', icon: () => h(Settings, { size: 16 }) },
 ];
 
 function pageFromPath(): PageKey {
   const path = window.location.pathname.replace(/^\/admin\/?/, '/');
   if (path.startsWith('/script/')) return 'scripts';
-  return ((path.split('/').filter(Boolean)[0] as PageKey) || 'welcome') as PageKey;
+  const key = path.split('/').filter(Boolean)[0] || 'welcome';
+  if (legacyContainerPages.includes(key as ContainerKind)) return 'containers';
+  if (legacyMessageToolPages.includes(key as MessageToolKind)) return 'message-tools';
+  return validPages.includes(key as PageKey) ? (key as PageKey) : 'welcome';
+}
+
+function containerKindFromPath(): ContainerKind {
+  const path = window.location.pathname.replace(/^\/admin\/?/, '/');
+  const parts = path.split('/').filter(Boolean);
+  const key = parts[0] === 'containers' ? parts[1] : parts[0];
+  return legacyContainerPages.includes(key as ContainerKind) ? (key as ContainerKind) : 'qinglong';
+}
+
+function messageToolKindFromPath(): MessageToolKind {
+  const path = window.location.pathname.replace(/^\/admin\/?/, '/');
+  const parts = path.split('/').filter(Boolean);
+  const key = parts[0] === 'message-tools' ? parts[1] : parts[0];
+  return legacyMessageToolPages.includes(key as MessageToolKind) ? (key as MessageToolKind) : 'carry';
 }
 
 function scriptIdFromPath() {
@@ -202,7 +244,7 @@ function maskSecret(value?: string) {
 }
 
 function navigate(next: PageKey, path?: string) {
-  const url = path || `/admin/${next === 'welcome' ? '' : next}`;
+  const url = path || (next === 'welcome' ? '/admin/' : next === 'containers' ? `/admin/containers/${containerKind.value}` : next === 'message-tools' ? `/admin/message-tools/${messageToolKind.value}` : `/admin/${next}`);
   window.history.pushState({}, '', url);
   page.value = next;
   selectedScriptId.value = scriptIdFromPath();
@@ -210,7 +252,7 @@ function navigate(next: PageKey, path?: string) {
 }
 
 async function loadSetupStatus() {
-  const res = await get<ApiEnvelope<{ initialized: boolean }>>('/api/setup/status');
+  const res = await get<ApiEnvelope<{ initialized: boolean }>>('/api/admin/setup/status');
   const data = apiData(res);
   setupRequired.value = !data?.initialized;
   return !!data?.initialized;
@@ -219,7 +261,7 @@ async function loadSetupStatus() {
 async function loadUser(setBooting = true) {
   if (setBooting) booting.value = true;
   try {
-    const res = await get<ApiEnvelope<CurrentUser>>('/api/currentUser');
+    const res = await get<ApiEnvelope<CurrentUser>>('/api/admin/currentUser');
     user.value = apiData(res) || {};
     setupRequired.value = false;
   } catch (error) {
@@ -236,7 +278,7 @@ async function loadUser(setBooting = true) {
 
 async function login() {
   try {
-    const res = await post<ApiEnvelope<AuthResponse>>('/api/login/account', loginModel);
+    const res = await post<ApiEnvelope<AuthResponse>>('/api/admin/login', loginModel);
     const auth = apiData(res);
     if (auth.status === 'setup_required') {
       setupRequired.value = true;
@@ -269,7 +311,7 @@ async function setupAdmin() {
     return;
   }
   try {
-    const res = await post<ApiEnvelope<AuthResponse>>('/api/setup/admin', { username: setupModel.username.trim(), password: setupModel.password });
+    const res = await post<ApiEnvelope<AuthResponse>>('/api/admin/register', { username: setupModel.username.trim(), password: setupModel.password });
     const auth = apiData(res);
     if (auth.status !== 'ok' || !auth.token) {
       message.error('账号创建失败');
@@ -289,7 +331,7 @@ async function setupAdmin() {
 }
 
 async function logout() {
-  await post('/api/login/outLogin').catch(() => undefined);
+  await post('/api/admin/outlogin').catch(() => undefined);
   clearAuthToken();
   user.value = null;
 }
@@ -312,6 +354,8 @@ onMounted(() => {
   bootApp();
   window.addEventListener('popstate', () => {
     page.value = pageFromPath();
+    containerKind.value = containerKindFromPath();
+    messageToolKind.value = messageToolKindFromPath();
     selectedScriptId.value = scriptIdFromPath();
   });
 });
@@ -320,6 +364,7 @@ const scriptState = reactive({ content: '', loading: false });
 const scriptCreateState = reactive({ open: false, fileName: '新脚本.js', saving: false });
 const scriptEditorHost = ref<HTMLElement | null>(null);
 const scriptEditorEditable = new Compartment();
+const scriptEditorLanguage = new Compartment();
 let scriptEditorView: EditorView | null = null;
 let syncingScriptFromEditor = false;
 function scriptFileId(item?: { path?: string }) {
@@ -336,18 +381,33 @@ function scriptDisplayName(item?: { name?: string; path?: string }) {
   return isNewScriptEntry(item) ? '新增脚本' : name;
 }
 
-function scriptFileName(item?: { name?: string; path?: string }) {
+function scriptFileName(item?: { name?: string; path?: string; type?: string; file?: string }) {
   if (!item) return '-';
   if (isNewScriptEntry(item)) return 'new-script.js';
   if ('file' in item && item.file) return item.file.split(/[\\/]/).pop() || 'main.js';
   const title = scriptDisplayName(item)
     .replace(/[🔧💫🔒👑]/gu, '')
     .trim();
-  return `${title || scriptFileId(item)}.js`;
+  const suffix = item.type === 'python' ? '.py' : '.js';
+  return `${title || scriptFileId(item)}${suffix}`;
 }
 
-function isNodeScript(item = currentScriptFile.value) {
-  return item?.type === 'node';
+function isFileScript(item = currentScriptFile.value) {
+  return item?.type === 'node' || item?.type === 'python';
+}
+
+function isPythonScript(item = currentScriptFile.value) {
+  return item?.type === 'python' || /\.py$/i.test(scriptFileName(item));
+}
+
+function scriptRuntimeLabel(item = currentScriptFile.value) {
+  if (item?.type === 'python' || isPythonScript(item)) return 'Python 3.12';
+  if (item?.type === 'node') return 'NodeJS';
+  return '旧脚本';
+}
+
+function scriptLanguageExtension() {
+  return isPythonScript() ? python() : javascript();
 }
 
 const scriptFileRows = computed(() => {
@@ -372,6 +432,13 @@ function syncScriptEditorEditable() {
   });
 }
 
+function syncScriptEditorLanguage() {
+  if (!scriptEditorView) return;
+  scriptEditorView.dispatch({
+    effects: scriptEditorLanguage.reconfigure(scriptLanguageExtension()),
+  });
+}
+
 function destroyScriptEditor() {
   scriptEditorView?.destroy();
   scriptEditorView = null;
@@ -391,7 +458,7 @@ function createScriptEditor() {
       doc: scriptState.content,
       extensions: [
         basicSetup,
-        javascript(),
+        scriptEditorLanguage.of(scriptLanguageExtension()),
         oneDark,
         EditorView.lineWrapping,
         scriptEditorEditable.of(scriptEditableExtension()),
@@ -406,6 +473,7 @@ async function ensureScriptEditor() {
   if (page.value === 'scripts') {
     createScriptEditor();
     syncScriptEditorEditable();
+    syncScriptEditorLanguage();
   } else {
     destroyScriptEditor();
   }
@@ -415,8 +483,8 @@ async function loadScript(id = currentScriptId.value) {
   if (!id) return;
   scriptState.loading = true;
   try {
-    if (isNodeScript()) {
-      const res = await get<ApiEnvelope<{ content: string }>>(`/api/node/script?id=${encodeURIComponent(id)}`);
+    if (isFileScript()) {
+      const res = await get<ApiEnvelope<{ content: string }>>(`/api/admin/node/script?id=${encodeURIComponent(id)}`);
       scriptState.content = apiData(res)?.content || '';
     } else {
       const res = await readStorage<Record<string, string>>(`plugins.${id}`);
@@ -429,8 +497,8 @@ async function loadScript(id = currentScriptId.value) {
 
 async function saveScript(value = scriptState.content) {
   if (!currentScriptId.value) return;
-  if (isNodeScript()) {
-    await put('/api/node/script', { id: currentScriptId.value, content: value });
+  if (isFileScript()) {
+    await put('/api/admin/node/script', { id: currentScriptId.value, content: value });
   } else {
     await saveStorage({ [`plugins.${currentScriptId.value}`]: value }, currentScriptId.value);
   }
@@ -440,6 +508,10 @@ async function saveScript(value = scriptState.content) {
 
 async function formatScript() {
   if (!scriptState.content.trim()) return;
+  if (isPythonScript()) {
+    message.warning('Python 格式化暂未内置，请保存前自行格式化。');
+    return;
+  }
   try {
     const [{ default: prettier }, { default: parserBabel }, { default: parserEstree }] = await Promise.all([
       import('prettier/standalone'),
@@ -463,8 +535,8 @@ async function formatScript() {
 
 async function removeScript() {
   if (!currentScriptId.value) return;
-  if (isNodeScript()) {
-    await del('/api/node/script', { id: currentScriptId.value });
+  if (isFileScript()) {
+    await del('/api/admin/node/script', { id: currentScriptId.value });
   } else {
     await saveStorage({ [`plugins.${currentScriptId.value}`]: 'uninstall' });
   }
@@ -482,7 +554,7 @@ function normalizeCreateScriptFileName() {
   const fileName = scriptCreateState.fileName.trim();
   if (!fileName) return '';
   if (/[\\/:<>"|?*]/.test(fileName) || fileName.includes('..')) return fileName;
-  return /\.js$/i.test(fileName) ? fileName : `${fileName}.js`;
+  return /\.(js|py)$/i.test(fileName) ? fileName : `${fileName}.js`;
 }
 
 async function createScript() {
@@ -495,13 +567,13 @@ async function createScript() {
     message.error('脚本文件名不合法');
     return;
   }
-  if (!/\.js$/i.test(fileName)) {
-    message.error('脚本文件名必须是 .js 文件');
+  if (!/\.(js|py)$/i.test(fileName)) {
+    message.error('脚本文件名必须是 .js 或 .py 文件');
     return;
   }
   scriptCreateState.saving = true;
   try {
-    const res = await post<ApiEnvelope<{ id: string }>>('/api/node/script', { name: fileName });
+    const res = await post<ApiEnvelope<{ id: string }>>('/api/admin/node/script', { name: fileName });
     const data = apiData(res);
     scriptCreateState.open = false;
     await loadUser();
@@ -511,15 +583,17 @@ async function createScript() {
   }
 }
 
-function selectScriptFile(item: { path?: string; name?: string }) {
+function selectScriptFile(item: { path?: string; name?: string; type?: string; file?: string }) {
   const id = scriptFileId(item);
   if (!id) return;
   navigate('scripts', `/admin/script/${id}`);
+  syncScriptEditorLanguage();
 }
 
 watch(currentScriptId, (id) => loadScript(id), { immediate: true });
 watch([page, () => booting.value, () => user.value], () => ensureScriptEditor(), { immediate: true });
 watch([currentScriptId, () => scriptState.loading], () => syncScriptEditorEditable());
+watch(currentScriptFile, () => syncScriptEditorLanguage());
 watch(
   () => scriptState.content,
   (content) => {
@@ -561,7 +635,7 @@ const canRemoveStorageBucket = computed(() => !!selectedStorageBucket.value && !
 async function loadStorageBuckets() {
   storageState.loadingBuckets = true;
   try {
-    const res = await get<ApiEnvelope<Array<{ value: string; text?: string }>>>('/api/storage');
+    const res = await get<ApiEnvelope<Array<{ value: string; text?: string }>>>('/api/admin/storage');
     storageState.buckets = (apiData(res) || []).map((item) => ({
       value: item.value,
       label: item.text || item.value,
@@ -573,7 +647,7 @@ async function loadStorageBuckets() {
 async function loadStorage() {
   storageState.loading = true;
   try {
-    const res = await get<ApiEnvelope<{ list: any[]; total: number }>>(`/api/storage/list?keys=${encodeURIComponent(storageState.keys)}`);
+    const res = await get<ApiEnvelope<{ list: any[]; total: number }>>(`/api/admin/storage/list?keys=${encodeURIComponent(storageState.keys)}`);
     storageState.rows = apiData(res)?.list || [];
   } finally {
     storageState.loading = false;
@@ -601,7 +675,7 @@ async function createStorageBucket() {
   }
   storageState.creatingBucket = true;
   try {
-    await post('/api/storage/bucket', { bucket });
+    await post('/api/admin/storage/bucket', { bucket });
     message.success('存储桶已创建');
     storageState.newBucketName = '';
     storageState.createBucketOpen = false;
@@ -649,7 +723,7 @@ async function removeStorageBucket() {
   }
   storageState.deletingBucket = true;
   try {
-    await del('/api/storage/bucket', { bucket });
+    await del('/api/admin/storage/bucket', { bucket });
     message.success('存储桶已删除');
     storageState.keys = 'shaniu';
     await loadStorageBuckets();
@@ -661,7 +735,7 @@ async function removeStorageBucket() {
 
 const replies = reactive({ rows: [] as Reply[], total: 0, editing: null as Reply | null, form: {} as Reply });
 async function loadReplies(current = 1, pageSize = 20) {
-  const res = await get<ApiEnvelope<{ list: Reply[]; total: number }>>(`/api/reply/list?current=${current}&pageSize=${pageSize}`);
+  const res = await get<ApiEnvelope<{ list: Reply[]; total: number }>>(`/api/admin/reply/list?current=${current}&pageSize=${pageSize}`);
   const data = apiData(res);
   replies.rows = data?.list || [];
   replies.total = data?.total || 0;
@@ -671,50 +745,64 @@ function openReply(row?: Reply) {
   replies.form = { ...replies.editing };
 }
 async function saveReply() {
-  await post('/api/reply', replies.form);
+  await post('/api/admin/reply', replies.form);
   replies.editing = null;
   message.success('已保存');
   loadReplies();
 }
 async function removeReply(row: Reply) {
-  await del(`/api/reply?id=${row.id}`);
+  await del(`/api/admin/reply?id=${row.id}`);
   message.success('已删除');
   loadReplies();
 }
 
 const masters = reactive({ rows: [] as Master[], platforms: [] as any[], editing: false, form: {} as Master });
 async function loadMasters() {
-  const res = await get<ApiEnvelope<{ list: Master[]; platforms: any[] }>>('/api/master/list');
+  const res = await get<ApiEnvelope<{ list: Master[]; platforms: any[] }>>('/api/admin/master/list');
   const data = apiData(res);
   masters.rows = data?.list || [];
   masters.platforms = data?.platforms || [];
 }
 async function saveMaster() {
-  await post('/api/master', masters.form);
+  await post('/api/admin/master', masters.form);
   masters.editing = false;
   message.success('已保存');
   loadMasters();
 }
 async function removeMaster(row: Master) {
-  await del('/api/master', row);
+  await del('/api/admin/master', row);
   message.success('已删除');
   loadMasters();
 }
 
+const normalUsers = reactive({ rows: [] as AdminUserRow[], total: 0, loading: false });
+async function loadNormalUsers() {
+  normalUsers.loading = true;
+  try {
+    const res = await get<ApiEnvelope<{ list: AdminUserRow[]; total: number }>>('/api/admin/users');
+    const data = apiData(res);
+    normalUsers.rows = data?.list || [];
+    normalUsers.total = data?.total || normalUsers.rows.length;
+  } finally {
+    normalUsers.loading = false;
+  }
+}
+
 const tasks = reactive({ rows: [] as Task[], total: 0, editing: null as Task | null, form: {} as any, scripts: [] as any[] });
 async function loadTasks(current = 1, pageSize = 20) {
-  const res = await get<ApiEnvelope<{ list: Task[]; total: number }>>(`/api/tasks?current=${current}&pageSize=${pageSize}`);
+  const res = await get<ApiEnvelope<{ list: Task[]; total: number }>>(`/api/admin/tasks?current=${current}&pageSize=${pageSize}`);
   const data = apiData(res);
   tasks.rows = data?.list || [];
   tasks.total = data?.total || 0;
 }
 async function loadTaskSelects(taskId = '') {
-  const res = await get<ApiEnvelope<{ scripts?: Record<string, string> }>>(`/api/task/selects?task_id=${encodeURIComponent(taskId)}`);
+  const res = await get<ApiEnvelope<{ scripts?: Record<string, string> }>>(`/api/admin/task/selects?task_id=${encodeURIComponent(taskId)}`);
   tasks.scripts = Object.entries(apiData(res)?.scripts || {})
-    .filter(([, label]) => String(label).endsWith('.js'))
+    .filter(([, label]) => /\.(js|py)$/i.test(String(label)))
     .map(([, label]) => {
-      const name = String(label).replace(/\.js$/, '');
-      return { value: `node ${name}.js`, label: `node ${name}.js` };
+      const text = String(label);
+      const runtime = /\.py$/i.test(text) ? 'python' : 'node';
+      return { value: `${runtime} ${text}`, label: `${runtime} ${text}` };
     });
 }
 async function openTask(row?: Task) {
@@ -746,31 +834,31 @@ async function saveTask() {
     command: tasks.form.command,
     enable: tasks.form.enable,
   };
-  await post('/api/tasks', payload);
+  await post('/api/admin/tasks', payload);
   tasks.editing = null;
   message.success('已保存');
   loadTasks();
 }
 async function removeTask(row: Task) {
-  await del('/api/tasks', row);
+  await del('/api/admin/tasks', row);
   message.success('已删除');
   loadTasks();
 }
 async function runTask(row: Task) {
-  await get(`/api/tasks/run?task_id=${encodeURIComponent(row.task_id)}`);
+  await get(`/api/admin/tasks/run?task_id=${encodeURIComponent(row.task_id)}`);
   message.success('已触发');
 }
 
 const carry = reactive({ rows: [] as CarryGroup[], total: 0, editing: null as CarryGroup | null, form: {} as any, selects: {} as any });
 async function loadCarry(current = 1, pageSize = 20) {
-  const res = await get<ApiEnvelope<{ list: CarryGroup[]; total: number }>>(`/api/carry/groups?current=${current}&pageSize=${pageSize}`);
+  const res = await get<ApiEnvelope<{ list: CarryGroup[]; total: number }>>(`/api/admin/carry/groups?current=${current}&pageSize=${pageSize}`);
   const data = apiData(res);
   carry.rows = data?.list || [];
   carry.total = data?.total || 0;
 }
 async function loadCarrySelects(row?: CarryGroup) {
   const res = await get<ApiEnvelope<any>>(
-    `/api/carry/group_selects?chat_id=${encodeURIComponent(row?.chat_id || '')}&platform=${encodeURIComponent(row?.platform || '')}`,
+    `/api/admin/carry/group_selects?chat_id=${encodeURIComponent(row?.chat_id || '')}&platform=${encodeURIComponent(row?.platform || '')}`,
   );
   carry.selects = apiData(res) || {};
 }
@@ -805,13 +893,13 @@ async function saveCarry() {
     bots_id: carry.form.bots_id || [],
     scripts: carry.form.scripts || [],
   };
-  await post('/api/carry/group', payload);
+  await post('/api/admin/carry/group', payload);
   carry.editing = null;
   message.success('已保存');
   loadCarry();
 }
 async function removeCarry(row: CarryGroup) {
-  await del('/api/carry/group', row);
+  await del('/api/admin/carry/group', row);
   message.success('已删除');
   loadCarry();
 }
@@ -828,7 +916,7 @@ const qinglong = reactive({
 async function loadQinglongPanels() {
   qinglong.loading = true;
   try {
-    const res = await get<ApiEnvelope<{ list: QinglongPanel[]; total: number }>>('/api/qinglong/panels');
+    const res = await get<ApiEnvelope<{ list: QinglongPanel[]; total: number }>>('/api/admin/qinglong/panels');
     const data = apiData(res);
     qinglong.rows = data?.list || [];
     qinglong.total = data?.total || 0;
@@ -844,7 +932,7 @@ function openQinglongPanel(row?: QinglongPanel) {
 async function testQinglongPanel(panel = qinglong.form) {
   qinglong.testing = true;
   try {
-    await post('/api/qinglong/panel/test', panel);
+    await post('/api/admin/qinglong/panel/test', panel);
     message.success('青龙接口连接成功');
   } catch (error) {
     message.error(error instanceof Error ? error.message : '青龙接口连接失败');
@@ -855,7 +943,7 @@ async function testQinglongPanel(panel = qinglong.form) {
 async function saveQinglongPanel() {
   qinglong.saving = true;
   try {
-    await post('/api/qinglong/panel', qinglong.form);
+    await post('/api/admin/qinglong/panel', qinglong.form);
     qinglong.editing = null;
     message.success('青龙面板已添加');
     await loadQinglongPanels();
@@ -866,7 +954,7 @@ async function saveQinglongPanel() {
   }
 }
 async function removeQinglongPanel(row: QinglongPanel) {
-  await del('/api/qinglong/panel', row);
+  await del('/api/admin/qinglong/panel', row);
   message.success('已删除');
   loadQinglongPanels();
 }
@@ -883,7 +971,7 @@ const yybgo = reactive({
 async function loadYybGoPanels() {
   yybgo.loading = true;
   try {
-    const res = await get<ApiEnvelope<{ list: YybGoPanel[]; total: number }>>('/api/yybgo/panels');
+    const res = await get<ApiEnvelope<{ list: YybGoPanel[]; total: number }>>('/api/admin/yybgo/panels');
     const data = apiData(res);
     yybgo.rows = data?.list || [];
     yybgo.total = data?.total || 0;
@@ -891,18 +979,24 @@ async function loadYybGoPanels() {
     yybgo.loading = false;
   }
 }
+function yybgoQuotaText(record: YybGoPanel) {
+  const used = `${record.account_used || ''}`.trim();
+  const limit = `${record.account_limit || ''}`.trim();
+  if (used && limit) return `${used} / ${limit}`;
+  return used || limit || '-';
+}
 function openYybGoPanel(row?: YybGoPanel) {
-  const data = row || { name: '', address: '' };
+  const data = row || { name: '', address: '', api_auth: '' };
   yybgo.editing = data;
   yybgo.form = { ...data };
 }
 async function testYybGoPanel(panel = yybgo.form) {
   yybgo.testing = true;
   try {
-    await post('/api/yybgo/panel/test', panel);
-    message.success('yyb-go 连接成功');
+    await post('/api/admin/yybgo/panel/test', panel);
+    message.success('yybgo API AUTH 验证通过');
   } catch (error) {
-    message.error(error instanceof Error ? error.message : 'yyb-go 连接失败');
+    message.error(error instanceof Error ? error.message : 'yybgo 验证失败');
   } finally {
     yybgo.testing = false;
   }
@@ -910,18 +1004,18 @@ async function testYybGoPanel(panel = yybgo.form) {
 async function saveYybGoPanel() {
   yybgo.saving = true;
   try {
-    await post('/api/yybgo/panel', yybgo.form);
+    await post('/api/admin/yybgo/panel', yybgo.form);
     yybgo.editing = null;
-    message.success('yyb-go 已添加');
+    message.success('yybgo 已添加');
     await loadYybGoPanels();
   } catch (error) {
-    message.error(error instanceof Error ? error.message : 'yyb-go 添加失败');
+    message.error(error instanceof Error ? error.message : 'yybgo 添加失败');
   } finally {
     yybgo.saving = false;
   }
 }
 async function removeYybGoPanel(row: YybGoPanel) {
-  await del('/api/yybgo/panel', row);
+  await del('/api/admin/yybgo/panel', row);
   message.success('已删除');
   loadYybGoPanels();
 }
@@ -938,7 +1032,7 @@ const daidai = reactive({
 async function loadDaidaiPanels() {
   daidai.loading = true;
   try {
-    const res = await get<ApiEnvelope<{ list: DaidaiPanel[]; total: number }>>('/api/daidai/panels');
+    const res = await get<ApiEnvelope<{ list: DaidaiPanel[]; total: number }>>('/api/admin/daidai/panels');
     const data = apiData(res);
     daidai.rows = data?.list || [];
     daidai.total = data?.total || 0;
@@ -954,7 +1048,7 @@ function openDaidaiPanel(row?: DaidaiPanel) {
 async function testDaidaiPanel(panel = daidai.form) {
   daidai.testing = true;
   try {
-    await post('/api/daidai/panel/test', panel);
+    await post('/api/admin/daidai/panel/test', panel);
     message.success('呆呆面板连接成功');
   } catch (error) {
     message.error(error instanceof Error ? error.message : '呆呆面板连接失败');
@@ -965,7 +1059,7 @@ async function testDaidaiPanel(panel = daidai.form) {
 async function saveDaidaiPanel() {
   daidai.saving = true;
   try {
-    await post('/api/daidai/panel', daidai.form);
+    await post('/api/admin/daidai/panel', daidai.form);
     daidai.editing = null;
     message.success('呆呆面板已添加');
     await loadDaidaiPanels();
@@ -976,9 +1070,43 @@ async function saveDaidaiPanel() {
   }
 }
 async function removeDaidaiPanel(row: DaidaiPanel) {
-  await del('/api/daidai/panel', row);
+  await del('/api/admin/daidai/panel', row);
   message.success('已删除');
   loadDaidaiPanels();
+}
+
+const containerOptions = [
+  { label: '青龙', value: 'qinglong' },
+  { label: '呆呆', value: 'daidai' },
+  { label: 'yybgo', value: 'yybgo' },
+] as { label: string; value: ContainerKind }[];
+const containerHelpText = computed(() => {
+  if (containerKind.value === 'qinglong') return '保存前会检测 /open/auth/token 是否可用。';
+  if (containerKind.value === 'daidai') return '保存前会调用 /api/open-api/token，使用 app_key/app_secret 验证 Open API。';
+  return '保存前会调用 /api/auth/validate，使用页面 API AUTH 一致的 auth 请求头验证。';
+});
+const containerAddLabel = computed(() => {
+  if (containerKind.value === 'qinglong') return '添加青龙面板';
+  if (containerKind.value === 'daidai') return '添加呆呆面板';
+  return '添加 yybgo';
+});
+
+function loadActiveContainerPanels() {
+  if (containerKind.value === 'qinglong') return loadQinglongPanels();
+  if (containerKind.value === 'daidai') return loadDaidaiPanels();
+  return loadYybGoPanels();
+}
+
+function openActiveContainerPanel() {
+  if (containerKind.value === 'qinglong') {
+    openQinglongPanel();
+    return;
+  }
+  if (containerKind.value === 'daidai') {
+    openDaidaiPanel();
+    return;
+  }
+  openYybGoPanel();
 }
 
 const plugins = reactive({
@@ -1023,13 +1151,31 @@ function pluginClassTags(row: PluginInfo) {
     .map((item) => item.trim())
     .filter(Boolean);
 }
+function pluginTriggerText(row: PluginInfo) {
+  const rule = String(row.rule || '').trim();
+  if (!rule) return '';
+  return rule
+    .replace(/^\^\\s\*\(?/, '')
+    .replace(/\)?\\s\*\$$/, '')
+    .replace(/^\^/, '')
+    .replace(/\$$/, '')
+    .replace(/\(\?:/g, '(')
+    .replace(/^\((.*)\)$/, '$1')
+    .replace(/\[Jj\]/g, 'J')
+    .replace(/\[Dd\]/g, 'D')
+    .replace(/\|/g, ' / ')
+    .replace(/\\s\*/g, ' ')
+    .replace(/\\s\+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || rule;
+}
 async function openPluginSourceManager() {
   plugins.sourceModal = true;
   await loadPluginSources();
 }
 async function loadPluginSources() {
   try {
-    const res = await get<ApiEnvelope<string[]>>('/api/plugins/sources');
+    const res = await get<ApiEnvelope<string[]>>('/api/admin/plugins/sources');
     plugins.sources = apiData(res) || [];
   } catch {
     plugins.sources = [];
@@ -1062,7 +1208,7 @@ async function addPluginSource() {
   }
   plugins.sourceSaving = true;
   try {
-    const res = await post<ApiEnvelope<{ count?: number }>>('/api/plugins/source', { address });
+    const res = await post<ApiEnvelope<{ count?: number }>>('/api/admin/plugins/source', { address });
     const data = apiData(res);
     plugins.sourceAddress = '';
     plugins.tab = 'all';
@@ -1077,7 +1223,7 @@ async function addPluginSource() {
 async function removePluginSource(address: string) {
   plugins.sourceRemoving[address] = true;
   try {
-    await del('/api/plugins/source', { address });
+    await del('/api/admin/plugins/source', { address });
     message.success('插件源已删除');
     await Promise.all([loadPluginSources(), loadPlugins(1)]);
   } catch (error) {
@@ -1089,7 +1235,7 @@ async function removePluginSource(address: string) {
 async function installPlugin(row: PluginInfo) {
   plugins.installing[row.id] = true;
   try {
-    const res = await put<ApiEnvelope<{ errors?: Record<string, string>; messages?: Record<string, string> }>>('/api/storage', {
+    const res = await put<ApiEnvelope<{ errors?: Record<string, string>; messages?: Record<string, string> }>>('/api/admin/storage', {
       [`plugins.${row.id}`]: 'install',
     });
     const data = apiData(res) || {};
@@ -1130,6 +1276,7 @@ type NodeDependencyPlugin = {
   title?: string;
   file?: string;
   path: string;
+  type?: string;
 };
 
 type NodeDependencyRow = {
@@ -1141,9 +1288,19 @@ type NodeDependencyRow = {
   plugin: string;
   plugin_title?: string;
   plugin_file?: string;
+  type?: string;
 };
 
+type DependencyRuntime = 'node' | 'python';
+type DependencyToolStatus = { available: boolean; path?: string; message?: string; registry?: string; target?: string };
+
+const dependencyRuntimeOptions = [
+  { label: 'NodeJS', value: 'node' },
+  { label: 'Python', value: 'python' },
+];
+
 const nodeDeps = reactive({
+  runtime: 'node' as DependencyRuntime,
   plugins: [] as NodeDependencyPlugin[],
   plugin: '',
   rows: [] as NodeDependencyRow[],
@@ -1153,19 +1310,38 @@ const nodeDeps = reactive({
   loading: false,
   saving: false,
   removing: {} as Record<string, boolean>,
-  pnpm: { available: false, path: '', message: '', registry: '' } as { available: boolean; path?: string; message?: string; registry?: string },
+  pnpm: { available: false, path: '', message: '', registry: '' } as DependencyToolStatus,
+  pipx: { available: false, path: '', message: '', registry: '', target: '' } as DependencyToolStatus,
 });
-async function loadNodeDependencies(plugin = '') {
+const currentDependencyTool = computed(() => nodeDeps.runtime === 'python' ? nodeDeps.pipx : nodeDeps.pnpm);
+const dependencyRuntimeLabel = computed(() => nodeDeps.runtime === 'python' ? 'Python' : 'NodeJS');
+const dependencySharedPath = computed(() => nodeDeps.runtime === 'python' ? '/data/plugins/python_packages/venvs/shaniu-python-runtime' : '/data/plugins/node_modules');
+const dependencyRegistryLabel = computed(() => nodeDeps.runtime === 'python' ? 'pipx 源' : 'pnpm 镜像');
+const dependencyPackagePlaceholder = computed(() => nodeDeps.runtime === 'python' ? '依赖名，例如 requests 或 requests==2.32.0' : '依赖名，例如 axios 或 ipp@latest');
+const dependencyPluginOptions = computed(() => [
+  { label: `全部 ${dependencyRuntimeLabel.value} 插件`, value: '' },
+  ...nodeDeps.plugins.map((item) => ({ label: `${item.title || item.name} / ${item.file || scriptFileName(item)}`, value: item.name })),
+]);
+async function loadNodeDependencies(plugin = nodeDeps.plugin) {
   nodeDeps.loading = true;
   try {
-    const query = plugin ? `?plugin=${encodeURIComponent(plugin)}` : '';
-    const res = await get<ApiEnvelope<{ plugins: NodeDependencyPlugin[]; plugin: string; dependencies: NodeDependencyRow[]; pnpm: typeof nodeDeps.pnpm }>>(`/api/node/dependencies${query}`);
+    const query = new URLSearchParams({ runtime: nodeDeps.runtime });
+    if (plugin) query.set('plugin', plugin);
+    const res = await get<ApiEnvelope<{
+      runtime: DependencyRuntime;
+      plugins: NodeDependencyPlugin[];
+      plugin: string;
+      dependencies: NodeDependencyRow[];
+      pnpm: DependencyToolStatus;
+      pipx: DependencyToolStatus;
+    }>>(`/api/admin/plugin/dependencies?${query.toString()}`);
     const data = apiData(res) || {};
     nodeDeps.plugins = data.plugins || [];
     nodeDeps.plugin = data.plugin || '';
     nodeDeps.rows = data.dependencies || [];
     nodeDeps.pnpm = data.pnpm || { available: false };
-    nodeDeps.registry = nodeDeps.pnpm.registry || 'https://registry.npmmirror.com';
+    nodeDeps.pipx = data.pipx || { available: false };
+    nodeDeps.registry = currentDependencyTool.value.registry || (nodeDeps.runtime === 'python' ? 'https://pypi.tuna.tsinghua.edu.cn/simple' : 'https://registry.npmmirror.com');
   } finally {
     nodeDeps.loading = false;
   }
@@ -1182,10 +1358,10 @@ async function installNodeDependencyPackage(pkg: string, after?: () => void) {
   }
   nodeDeps.saving = true;
   try {
-    await post('/api/node/dependency', { plugin: nodeDeps.plugin || '__shared__', package: pkg, dev: nodeDeps.dev });
+    await post('/api/admin/plugin/dependency', { runtime: nodeDeps.runtime, plugin: nodeDeps.plugin || '__shared__', package: pkg, dev: nodeDeps.dev });
     after?.();
     message.success('依赖已安装');
-    await loadNodeDependencies();
+    await loadNodeDependencies(nodeDeps.plugin);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '依赖安装失败');
   } finally {
@@ -1195,9 +1371,9 @@ async function installNodeDependencyPackage(pkg: string, after?: () => void) {
 async function installNodeDependencyRow(row: NodeDependencyRow) {
   nodeDeps.saving = true;
   try {
-    await post('/api/node/dependency', { plugin: row.plugin || '__shared__', package: row.name, dev: row.dev });
+    await post('/api/admin/plugin/dependency', { runtime: nodeDeps.runtime, plugin: row.plugin || '__shared__', package: row.name, dev: row.dev });
     message.success('依赖已安装');
-    await loadNodeDependencies();
+    await loadNodeDependencies(nodeDeps.plugin);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '依赖安装失败');
   } finally {
@@ -1205,12 +1381,12 @@ async function installNodeDependencyRow(row: NodeDependencyRow) {
   }
 }
 async function removeNodeDependency(row: NodeDependencyRow) {
-  const key = `${row.plugin}.${row.name}`;
+  const key = `${nodeDeps.runtime}.${row.plugin}.${row.name}`;
   nodeDeps.removing[key] = true;
   try {
-    await del('/api/node/dependency', { plugin: row.plugin || '__shared__', package: row.name });
+    await del('/api/admin/plugin/dependency', { runtime: nodeDeps.runtime, plugin: row.plugin || '__shared__', package: row.name });
     message.success('依赖已卸载');
-    await loadNodeDependencies();
+    await loadNodeDependencies(nodeDeps.plugin);
   } catch (error) {
     message.error(error instanceof Error ? error.message : '依赖卸载失败');
   } finally {
@@ -1238,7 +1414,7 @@ const pluginConfigOptions = computed(() =>
 async function loadPluginConfigs() {
   pluginConfigs.loading = true;
   try {
-    const res = await get<ApiEnvelope<any[]>>('/api/plugin/configs');
+    const res = await get<ApiEnvelope<any[]>>('/api/admin/plugin/configs');
     pluginConfigs.rows = apiData(res) || [];
     if (pluginConfigs.selected) {
       const next = pluginConfigs.rows.find((item) => item.uuid === pluginConfigs.selected?.uuid);
@@ -1301,7 +1477,7 @@ async function savePluginConfig() {
   await loadPluginConfigs();
 }
 async function putPluginConfig(uuid: string, value: Record<string, any>) {
-  await put('/api/plugin/config', { uuid, value });
+  await put('/api/admin/plugin/config', { uuid, value });
 }
 
 const settings = reactive({ form: {} as any, githubProxyOptions: [] as string[] });
@@ -1320,16 +1496,20 @@ const settingsKeys = [
   'shaniu.storage',
   'shaniu.redis_addr',
   'shaniu.redis_password',
+  'telegram.token',
+  'telegram.api_base',
 ];
 async function loadSettings() {
-  const [res, githubProxyRes, pnpmRegistryRes] = await Promise.all([
+  const [res, githubProxyRes, pnpmRegistryRes, pipxRegistryRes] = await Promise.all([
     readStorage<Record<string, any>>(settingsKeys.join(',')),
-    get<ApiEnvelope<{ proxy: string; options: string[] }>>('/api/plugins/github-proxy').catch(() => ({ data: { proxy: '', options: [] } })),
-    get<ApiEnvelope<{ registry: string }>>('/api/node/dependency/registry').catch(() => ({ data: { registry: 'https://registry.npmmirror.com' } })),
+    get<ApiEnvelope<{ proxy: string; options: string[] }>>('/api/admin/plugins/github-proxy').catch(() => ({ data: { proxy: '', options: [] } })),
+    get<ApiEnvelope<{ registry: string }>>('/api/admin/node/dependency/registry').catch(() => ({ data: { registry: 'https://registry.npmmirror.com' } })),
+    get<ApiEnvelope<{ registry: string }>>('/api/admin/plugin/dependency/registry?runtime=python').catch(() => ({ data: { registry: 'https://pypi.tuna.tsinghua.edu.cn/simple' } })),
   ]);
   const data = apiData(res) || {};
   const githubProxyData = apiData(githubProxyRes) || { proxy: '', options: [] };
   const pnpmRegistryData = apiData(pnpmRegistryRes) || { registry: 'https://registry.npmmirror.com' };
+  const pipxRegistryData = apiData(pipxRegistryRes) || { registry: 'https://pypi.tuna.tsinghua.edu.cn/simple' };
   settings.githubProxyOptions = githubProxyData.options || [];
   settings.form = {
     name: data['shaniu.name'],
@@ -1342,8 +1522,11 @@ async function loadSettings() {
     storage: data['shaniu.storage'] === 'redis' ? 'redis' : 'boltdb',
     redis_addr: data['shaniu.redis_addr'],
     redis_password: data['shaniu.redis_password'],
+    telegram_token: data['telegram.token'],
+    telegram_api_base: data['telegram.api_base'] || 'https://api.telegram.org',
     github_proxy: githubProxyData.proxy || '',
     pnpm_registry: pnpmRegistryData.registry || 'https://registry.npmmirror.com',
+    pipx_registry: pipxRegistryData.registry || 'https://pypi.tuna.tsinghua.edu.cn/simple',
   };
 }
 async function saveSettings() {
@@ -1358,17 +1541,22 @@ async function saveSettings() {
     'shaniu.storage': v.storage || 'boltdb',
     'shaniu.redis_addr': v.redis_addr || '',
     'shaniu.redis_password': v.redis_password || '',
+    'telegram.token': v.telegram_token || '',
+    'telegram.api_base': v.telegram_api_base || 'https://api.telegram.org',
   };
   if (v.password) updates['shaniu.password'] = v.password;
   await saveStorage(updates);
-  const [githubProxyRes, pnpmRegistryRes] = await Promise.all([
-    put<ApiEnvelope<{ proxy?: string }>>('/api/plugins/github-proxy', { proxy: String(v.github_proxy || '').trim() }),
-    put<ApiEnvelope<{ registry?: string }>>('/api/node/dependency/registry', { registry: String(v.pnpm_registry || '').trim() }),
+  const [githubProxyRes, pnpmRegistryRes, pipxRegistryRes] = await Promise.all([
+    put<ApiEnvelope<{ proxy?: string }>>('/api/admin/plugins/github-proxy', { proxy: String(v.github_proxy || '').trim() }),
+    put<ApiEnvelope<{ registry?: string }>>('/api/admin/node/dependency/registry', { registry: String(v.pnpm_registry || '').trim() }),
+    put<ApiEnvelope<{ registry?: string }>>('/api/admin/plugin/dependency/registry', { runtime: 'python', registry: String(v.pipx_registry || '').trim() }),
   ]);
   settings.form.github_proxy = apiData(githubProxyRes)?.proxy || '';
   settings.form.pnpm_registry = apiData(pnpmRegistryRes)?.registry || settings.form.pnpm_registry;
-  nodeDeps.registry = settings.form.pnpm_registry;
+  settings.form.pipx_registry = apiData(pipxRegistryRes)?.registry || settings.form.pipx_registry;
   nodeDeps.pnpm.registry = settings.form.pnpm_registry;
+  nodeDeps.pipx.registry = settings.form.pipx_registry;
+  nodeDeps.registry = currentDependencyTool.value.registry || nodeDeps.registry;
   message.success('设置已保存');
   loadUser();
 }
@@ -1381,7 +1569,7 @@ const messageBuckets = {
 const msgState = reactive({ active: 'listen' as keyof typeof messageBuckets, rows: [] as any[], editing: null as any, form: {} as any, platforms: [] as any[] });
 async function loadMessages() {
   const bucket = messageBuckets[msgState.active].bucket;
-  const res = await get<ApiEnvelope<{ list: any[] }>>(`/api/storage/list?keys=${bucket}`);
+  const res = await get<ApiEnvelope<{ list: any[] }>>(`/api/admin/storage/list?keys=${bucket}`);
   msgState.rows = (apiData(res)?.list || []).map((row) => {
     try {
       return { ...row, ...JSON.parse(row.value || '{}') };
@@ -1389,7 +1577,7 @@ async function loadMessages() {
       return row;
     }
   });
-  const master = await get<ApiEnvelope<{ platforms?: any[] }>>('/api/master/list').catch(() => ({ data: { platforms: [] } }));
+  const master = await get<ApiEnvelope<{ platforms?: any[] }>>('/api/admin/master/list').catch(() => ({ data: { platforms: [] } }));
   msgState.platforms = apiData(master)?.platforms || [];
 }
 function openMessage(row?: any) {
@@ -1416,15 +1604,47 @@ async function removeMessageRow(row: any) {
   loadMessages();
 }
 
+const messageToolOptions = [
+  { label: '转发', value: 'carry' },
+  { label: '回复', value: 'reply' },
+  { label: '监听', value: 'messages' },
+] as { label: string; value: MessageToolKind }[];
+const messageToolHelpText = computed(() => {
+  if (messageToolKind.value === 'carry') return '选择平台、群号、工作机器人和处理脚本。';
+  if (messageToolKind.value === 'reply') return '按关键词或正则维护自动回复规则。';
+  return '维护监听群组、禁言群组和屏蔽用户。';
+});
+const messageToolAddLabel = computed(() => {
+  if (messageToolKind.value === 'carry') return '新增转发群组';
+  if (messageToolKind.value === 'reply') return '新增回复';
+  return '新增监听规则';
+});
+
+function loadActiveMessageTool() {
+  if (messageToolKind.value === 'carry') return loadCarry();
+  if (messageToolKind.value === 'reply') return loadReplies();
+  return loadMessages();
+}
+
+function openActiveMessageTool() {
+  if (messageToolKind.value === 'carry') {
+    openCarry();
+    return;
+  }
+  if (messageToolKind.value === 'reply') {
+    openReply();
+    return;
+  }
+  openMessage();
+}
+
 watch([page, user], ([p]) => {
   if (!user.value) return;
-  if (p === 'reply') loadReplies();
+  if (p === 'users') loadNormalUsers();
   if (p === 'masters') loadMasters();
   if (p === 'tasks') loadTasks();
-  if (p === 'carry') loadCarry();
-  if (p === 'qinglong') loadQinglongPanels();
-  if (p === 'yybgo') loadYybGoPanels();
-  if (p === 'daidai') loadDaidaiPanels();
+  if (p === 'message-tools') loadActiveMessageTool();
+  if (p === 'containers') loadActiveContainerPanels();
   if (p === 'dependencies') loadNodeDependencies();
   if (p === 'plugins') {
     loadPluginSources();
@@ -1436,14 +1656,30 @@ watch([page, user], ([p]) => {
     loadStorage();
   }
   if (p === 'settings') loadSettings();
-  if (p === 'messages') loadMessages();
 }, { immediate: true });
+watch(containerKind, (kind) => {
+  if (page.value !== 'containers') return;
+  window.history.replaceState({}, '', `/admin/containers/${kind}`);
+  loadActiveContainerPanels();
+});
+watch(messageToolKind, (kind) => {
+  if (page.value !== 'message-tools') return;
+  window.history.replaceState({}, '', `/admin/message-tools/${kind}`);
+  loadActiveMessageTool();
+});
 watch(() => plugins.tab, () => loadPlugins());
 watch(() => plugins.klass, () => loadPlugins());
 watch(() => nodeDeps.plugin, (plugin) => {
-  if (page.value === 'dependencies' && plugin) loadNodeDependencies(plugin);
+  if (page.value === 'dependencies') loadNodeDependencies(plugin);
 });
-watch(() => msgState.active, () => loadMessages());
+watch(() => nodeDeps.runtime, () => {
+  nodeDeps.plugin = '';
+  nodeDeps.packageName = '';
+  if (page.value === 'dependencies') loadNodeDependencies('');
+});
+watch(() => msgState.active, () => {
+  if (page.value === 'message-tools' && messageToolKind.value === 'messages') loadMessages();
+});
 
 function optionMap(values?: string[]) {
   return (values || []).map((value) => ({ value, label: value }));
@@ -1451,10 +1687,18 @@ function optionMap(values?: string[]) {
 function recordOptions(record?: Record<string, string>) {
   return Object.entries(record || {}).map(([value, label]) => ({ value, label }));
 }
+function yybgoOpenids(record?: AdminUserRow) {
+  const rows = [] as string[];
+  if (record?.bindings?.yybgo_openid) rows.push(record.bindings.yybgo_openid);
+  for (const item of record?.bindings?.yybgo_openids || []) {
+    if (item) rows.push(item);
+  }
+  return Array.from(new Set(rows.map((item) => item.trim()).filter(Boolean)));
+}
 </script>
 
 <template>
-  <a-config-provider :locale="zhCN">
+  <ConfigProvider :locale="zhCN">
     <AntApp>
       <div v-if="!booting && !user" class="login-page">
         <div class="login-card">
@@ -1520,12 +1764,14 @@ function recordOptions(record?: Record<string, string>) {
                 <Tag color="green">最新版本 {{ overviewVersion.remote }}</Tag>
                 <Typography.Link :href="overviewVersion.repository" target="_blank">GitHub</Typography.Link>
               </Space>
-              <a-row :gutter="[12, 12]">
-                <a-col :xs="24" :sm="12" :md="8"><Card><Statistic title="脚本数量" :value="realScripts.length" /></Card></a-col>
-                <a-col :xs="24" :sm="12" :md="8"><Card><Statistic title="青龙容器" :value="overviewIntegrations.find((item) => item.key === 'qinglong')?.count || 0" /></Card></a-col>
-                <a-col :xs="24" :sm="12" :md="8"><Card><Statistic title="yyb-go" :value="overviewIntegrations.find((item) => item.key === 'yybgo')?.count || 0" /></Card></a-col>
-                <a-col :xs="24" :sm="12" :md="8"><Card><Statistic title="呆呆容器" :value="overviewIntegrations.find((item) => item.key === 'daidai')?.count || 0" /></Card></a-col>
-              </a-row>
+              <Row :gutter="[12, 12]">
+                <Col :xs="24" :sm="12" :md="8"><Card><Statistic title="脚本数量" :value="realScripts.length" /></Card></Col>
+                <Col :xs="24" :sm="12" :md="8"><Card><Statistic title="今日新增用户" :value="overviewUserStats.today" /></Card></Col>
+                <Col :xs="24" :sm="12" :md="8"><Card><Statistic title="总用户数量" :value="overviewUserStats.total" /></Card></Col>
+                <Col :xs="24" :sm="12" :md="8"><Card><Statistic title="青龙容器" :value="overviewIntegrations.find((item) => item.key === 'qinglong')?.count || 0" /></Card></Col>
+                <Col :xs="24" :sm="12" :md="8"><Card><Statistic title="yybgo" :value="overviewIntegrations.find((item) => item.key === 'yybgo')?.count || 0" /></Card></Col>
+                <Col :xs="24" :sm="12" :md="8"><Card><Statistic title="呆呆容器" :value="overviewIntegrations.find((item) => item.key === 'daidai')?.count || 0" /></Card></Col>
+              </Row>
               <div style="margin-top: 16px">
                 <div class="toolbar">
                   <div class="toolbar-left">
@@ -1602,7 +1848,7 @@ function recordOptions(record?: Record<string, string>) {
                       </span>
                       <Tag v-if="isNewScriptEntry(item)" color="blue">新建</Tag>
                     </button>
-                    <a-empty v-if="scriptFileRows.length === 0" description="暂无脚本文件" />
+                    <Empty v-if="scriptFileRows.length === 0" description="暂无脚本文件" />
                   </div>
                 </aside>
 
@@ -1627,7 +1873,7 @@ function recordOptions(record?: Record<string, string>) {
                   </div>
                   <div ref="scriptEditorHost" class="code-editor script-code-editor" />
                   <div class="script-editor-status">
-                    <span>{{ isNodeScript() ? 'NodeJS' : '旧脚本' }}</span>
+                    <span>{{ scriptRuntimeLabel() }}</span>
                     <span>{{ scriptState.content.split('\n').length }} 行</span>
                     <span>{{ scriptState.content.length }} 字符</span>
                   </div>
@@ -1638,27 +1884,35 @@ function recordOptions(record?: Record<string, string>) {
             <section v-if="page === 'dependencies'" class="panel">
               <div class="toolbar">
                 <div class="toolbar-left">
-                  <Typography.Text class="muted">共 {{ nodeDeps.plugins.length }} 个 NodeJS 脚本插件，依赖共享到 /data/plugins/node_modules</Typography.Text>
-                  <Typography.Text class="muted">pnpm 镜像：{{ nodeDeps.registry }}</Typography.Text>
-                  <Typography.Text v-if="nodeDeps.pnpm.message" type="danger">{{ nodeDeps.pnpm.message }}</Typography.Text>
+                  <Typography.Text class="muted">共 {{ nodeDeps.plugins.length }} 个 {{ dependencyRuntimeLabel }} 脚本插件，依赖共享到 {{ dependencySharedPath }}</Typography.Text>
+                  <Typography.Text class="muted">{{ dependencyRegistryLabel }}：{{ nodeDeps.registry }}</Typography.Text>
+                  <Typography.Text v-if="currentDependencyTool.message" type="danger">{{ currentDependencyTool.message }}</Typography.Text>
                 </div>
                 <div class="toolbar-right">
                   <Button @click="loadNodeDependencies()"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
                 </div>
               </div>
               <div class="toolbar-left" style="margin-bottom: 12px">
+                <Segmented v-model:value="nodeDeps.runtime" :options="dependencyRuntimeOptions" />
+                <Select
+                  v-model:value="nodeDeps.plugin"
+                  style="width: 260px"
+                  show-search
+                  :options="dependencyPluginOptions"
+                  option-filter-prop="label"
+                />
                 <Input
                   v-model:value="nodeDeps.packageName"
                   style="width: 320px"
-                  placeholder="依赖名，例如 axios 或 ipp@latest"
+                  :placeholder="dependencyPackagePlaceholder"
                   @press-enter="installNodeDependency"
                 />
-                <Switch v-model:checked="nodeDeps.dev" checked-children="Dev" un-checked-children="Prod" />
-                <Button type="primary" :disabled="!nodeDeps.pnpm.available" :loading="nodeDeps.saving" @click="installNodeDependency">
+                <Switch v-if="nodeDeps.runtime === 'node'" v-model:checked="nodeDeps.dev" checked-children="Dev" un-checked-children="Prod" />
+                <Button type="primary" :disabled="!currentDependencyTool.available" :loading="nodeDeps.saving" @click="installNodeDependency">
                   <template #icon><Download :size="16" /></template>安装依赖
                 </Button>
               </div>
-              <Table :row-key="(row:any) => `${row.plugin}.${row.name}`" :loading="nodeDeps.loading" :data-source="nodeDeps.rows" :pagination="{ pageSize: 20 }">
+              <Table :row-key="(row:any) => `${row.type || nodeDeps.runtime}.${row.plugin}.${row.name}`" :loading="nodeDeps.loading" :data-source="nodeDeps.rows" :pagination="{ pageSize: 20 }">
                 <Table.Column title="#" :width="64">
                   <template #default="{ index }">{{ index + 1 }}</template>
                 </Table.Column>
@@ -1666,7 +1920,7 @@ function recordOptions(record?: Record<string, string>) {
                   <template #default="{ record }"><Typography.Text>{{ record.plugin_title || record.plugin }}</Typography.Text></template>
                 </Table.Column>
                 <Table.Column title="文件名" :width="140">
-                  <template #default="{ record }"><Typography.Text class="mono">{{ record.plugin_file || 'main.js' }}</Typography.Text></template>
+                  <template #default="{ record }"><Typography.Text class="mono">{{ record.plugin_file || (nodeDeps.runtime === 'python' ? 'main.py' : 'main.js') }}</Typography.Text></template>
                 </Table.Column>
                 <Table.Column title="依赖名称" data-index="name" />
                 <Table.Column title="版本" data-index="version" :width="180">
@@ -1677,18 +1931,18 @@ function recordOptions(record?: Record<string, string>) {
                 </Table.Column>
                 <Table.Column title="来源" data-index="source" :width="150" />
                 <Table.Column title="类型" :width="100">
-                  <template #default="{ record }"><Tag :color="record.dev ? 'blue' : 'green'">{{ record.dev ? 'dev' : 'prod' }}</Tag></template>
+                  <template #default="{ record }"><Tag :color="nodeDeps.runtime === 'python' ? 'purple' : (record.dev ? 'blue' : 'green')">{{ nodeDeps.runtime === 'python' ? 'pipx' : (record.dev ? 'dev' : 'prod') }}</Tag></template>
                 </Table.Column>
                 <Table.Column title="操作" :width="130">
                   <template #default="{ record }">
-                    <Button v-if="!record.installed" type="link" :disabled="!nodeDeps.pnpm.available" :loading="nodeDeps.saving" @click="installNodeDependencyRow(record)">安装</Button>
+                    <Button v-if="!record.installed" type="link" :disabled="!currentDependencyTool.available" :loading="nodeDeps.saving" @click="installNodeDependencyRow(record)">安装</Button>
                     <Popconfirm v-else title="确认卸载这个依赖？" @confirm="removeNodeDependency(record)">
-                      <Button type="text" danger :loading="nodeDeps.removing[`${record.plugin}.${record.name}`]"><Trash2 :size="16" /></Button>
+                      <Button type="text" danger :loading="nodeDeps.removing[`${nodeDeps.runtime}.${record.plugin}.${record.name}`]"><Trash2 :size="16" /></Button>
                     </Popconfirm>
                   </template>
                 </Table.Column>
               </Table>
-              <a-empty v-if="!nodeDeps.loading && nodeDeps.rows.length === 0" description="暂未识别到插件需要依赖。" />
+              <Empty v-if="!nodeDeps.loading && nodeDeps.rows.length === 0" description="暂未识别到插件需要依赖。" />
             </section>
 
             <section v-if="page === 'storage'" class="panel">
@@ -1754,12 +2008,89 @@ function recordOptions(record?: Record<string, string>) {
               </Table>
             </section>
 
-            <section v-if="page === 'reply'" class="panel">
-              <div class="toolbar-left" style="margin-bottom: 12px">
-                <Button type="primary" @click="openReply()"><template #icon><Plus :size="16" /></template>新增回复</Button>
-                <Button @click="loadReplies()"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
+            <section v-if="page === 'users'" class="panel">
+              <div class="toolbar">
+                <div class="toolbar-left">
+                  <Typography.Text strong>普通用户</Typography.Text>
+                  <Tag>{{ normalUsers.total }}</Tag>
+                </div>
+                <Button @click="loadNormalUsers"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
               </div>
-              <Table :row-key="(row:any) => String(row.id)" :data-source="replies.rows" :pagination="{ total: replies.total, pageSize: 20, onChange: loadReplies }">
+              <Table
+                row-key="id"
+                :loading="normalUsers.loading"
+                :data-source="normalUsers.rows"
+                :pagination="{ pageSize: 20, total: normalUsers.total }"
+              >
+                <Table.Column title="#" :width="72">
+                  <template #default="{ index }">{{ index + 1 }}</template>
+                </Table.Column>
+                <Table.Column title="账号" data-index="username" :width="180">
+                  <template #default="{ record }">
+                    <Space direction="vertical" size="small">
+                      <Typography.Text strong>{{ record.username }}</Typography.Text>
+                      <Typography.Text class="muted">{{ record.nickname || '-' }}</Typography.Text>
+                    </Space>
+                  </template>
+                </Table.Column>
+                <Table.Column title="yybgo openid" :width="300">
+                  <template #default="{ record }">
+                    <Space v-if="yybgoOpenids(record).length" direction="vertical" size="small">
+                      <Typography.Text
+                        v-for="openid in yybgoOpenids(record)"
+                        :key="openid"
+                        class="mono"
+                        :copyable="true"
+                      >
+                        {{ openid }}
+                      </Typography.Text>
+                    </Space>
+                    <Typography.Text v-else class="muted">-</Typography.Text>
+                  </template>
+                </Table.Column>
+                <Table.Column title="QQ" :width="150">
+                  <template #default="{ record }">
+                    <Typography.Text class="mono">{{ record.bindings?.qq || '-' }}</Typography.Text>
+                  </template>
+                </Table.Column>
+                <Table.Column title="TGID" :width="170">
+                  <template #default="{ record }">
+                    <Typography.Text class="mono">{{ record.bindings?.telegram || '-' }}</Typography.Text>
+                  </template>
+                </Table.Column>
+                <Table.Column title="绑定更新时间" :width="180">
+                  <template #default="{ record }">{{ timestamp(record.bindings?.updated_at) }}</template>
+                </Table.Column>
+                <Table.Column title="注册时间" data-index="created_at" :width="180">
+                  <template #default="{ text }">{{ timestamp(text) }}</template>
+                </Table.Column>
+                <Table.Column title="状态" :width="100">
+                  <template #default="{ record }">
+                    <Tag :color="record.disabled ? 'default' : 'green'">{{ record.disabled ? '禁用' : '正常' }}</Tag>
+                  </template>
+                </Table.Column>
+              </Table>
+            </section>
+
+            <section v-if="page === 'message-tools'" class="panel">
+              <div class="toolbar">
+                <div class="toolbar-left">
+                  <Segmented v-model:value="messageToolKind" :options="messageToolOptions" />
+                  <Button type="primary" @click="openActiveMessageTool()"><template #icon><Plus :size="16" /></template>{{ messageToolAddLabel }}</Button>
+                  <Button @click="loadActiveMessageTool"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
+                </div>
+                <Typography.Text class="muted">{{ messageToolHelpText }}</Typography.Text>
+              </div>
+
+              <Table v-if="messageToolKind === 'carry'" row-key="chat_id" :data-source="carry.rows" :pagination="{ total: carry.total, pageSize: 20, onChange: loadCarry }">
+                <Table.Column title="#" data-index="id" :width="64" />
+                <Table.Column title="平台" data-index="platform" :width="100" />
+                <Table.Column title="群号" data-index="chat_id" :width="160" />
+                <Table.Column title="备注" data-index="remark" />
+                <Table.Column title="操作" :width="150"><template #default="{ record }"><Button type="text" @click="openCarry(record)">编辑</Button><Popconfirm title="确认删除？" @confirm="removeCarry(record)"><Button type="text" danger><Trash2 :size="16" /></Button></Popconfirm></template></Table.Column>
+              </Table>
+
+              <Table v-else-if="messageToolKind === 'reply'" :row-key="(row:any) => String(row.id)" :data-source="replies.rows" :pagination="{ total: replies.total, pageSize: 20, onChange: loadReplies }">
                 <Table.Column title="#" data-index="index" :width="64" />
                 <Table.Column title="关键词" data-index="keyword" :width="220" />
                 <Table.Column title="回复内容" data-index="value" ellipsis />
@@ -1775,6 +2106,17 @@ function recordOptions(record?: Record<string, string>) {
                   </template>
                 </Table.Column>
               </Table>
+
+              <template v-else>
+                <Tabs v-model:active-key="msgState.active" :items="Object.entries(messageBuckets).map(([key, item]) => ({ key, label: item.label }))" />
+                <Table row-key="key" :data-source="msgState.rows">
+                  <Table.Column title="号码" data-index="key" :width="220" />
+                  <Table.Column title="平台" data-index="platform" :width="140" />
+                  <Table.Column title="说明" data-index="desc" />
+                  <Table.Column title="启用" data-index="enable" :width="90"><template #default="{ text }">{{ text ? '是' : '否' }}</template></Table.Column>
+                  <Table.Column title="操作" :width="150"><template #default="{ record }"><Button type="text" @click="openMessage(record)">编辑</Button><Popconfirm title="确认删除？" @confirm="removeMessageRow(record)"><Button type="text" danger><Trash2 :size="16" /></Button></Popconfirm></template></Table.Column>
+                </Table>
+              </template>
             </section>
 
             <section v-if="page === 'masters'" class="panel">
@@ -1808,29 +2150,17 @@ function recordOptions(record?: Record<string, string>) {
               </Table>
             </section>
 
-            <section v-if="page === 'carry'" class="panel">
-              <div class="toolbar-left" style="margin-bottom: 12px">
-                <Button type="primary" @click="openCarry()"><template #icon><Plus :size="16" /></template>新增群组</Button>
-                <Button @click="loadCarry()"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
-              </div>
-              <Table row-key="chat_id" :data-source="carry.rows" :pagination="{ total: carry.total, pageSize: 20, onChange: loadCarry }">
-                <Table.Column title="#" data-index="id" :width="64" />
-                <Table.Column title="平台" data-index="platform" :width="100" />
-                <Table.Column title="群号" data-index="chat_id" :width="160" />
-                <Table.Column title="备注" data-index="remark" />
-                <Table.Column title="操作" :width="150"><template #default="{ record }"><Button type="text" @click="openCarry(record)">编辑</Button><Popconfirm title="确认删除？" @confirm="removeCarry(record)"><Button type="text" danger><Trash2 :size="16" /></Button></Popconfirm></template></Table.Column>
-              </Table>
-            </section>
-
-            <section v-if="page === 'qinglong'" class="panel">
+            <section v-if="page === 'containers'" class="panel">
               <div class="toolbar">
                 <div class="toolbar-left">
-                  <Button type="primary" @click="openQinglongPanel()"><template #icon><Plus :size="16" /></template>添加青龙面板</Button>
-                  <Button @click="loadQinglongPanels"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
+                  <Segmented v-model:value="containerKind" :options="containerOptions" />
+                  <Button type="primary" @click="openActiveContainerPanel()"><template #icon><Plus :size="16" /></template>{{ containerAddLabel }}</Button>
+                  <Button @click="loadActiveContainerPanels"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
                 </div>
-                <Typography.Text class="muted">保存前会检测 /open/auth/token 是否可用。</Typography.Text>
+                <Typography.Text class="muted">{{ containerHelpText }}</Typography.Text>
               </div>
-              <Table row-key="id" :loading="qinglong.loading" :data-source="qinglong.rows" :pagination="{ total: qinglong.total, pageSize: 20 }">
+
+              <Table v-if="containerKind === 'qinglong'" row-key="id" :loading="qinglong.loading" :data-source="qinglong.rows" :pagination="{ total: qinglong.total, pageSize: 20 }">
                 <Table.Column title="#" :width="72">
                   <template #default="{ index }">{{ index + 1 }}</template>
                 </Table.Column>
@@ -1859,55 +2189,8 @@ function recordOptions(record?: Record<string, string>) {
                   </template>
                 </Table.Column>
               </Table>
-            </section>
 
-            <section v-if="page === 'yybgo'" class="panel">
-              <div class="toolbar">
-                <div class="toolbar-left">
-                  <Button type="primary" @click="openYybGoPanel()"><template #icon><Plus :size="16" /></template>添加 yyb-go</Button>
-                  <Button @click="loadYybGoPanels"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
-                </div>
-                <Typography.Text class="muted">保存前会连接检测地址是否可达。</Typography.Text>
-              </div>
-              <Table row-key="id" :loading="yybgo.loading" :data-source="yybgo.rows" :pagination="{ total: yybgo.total, pageSize: 20 }">
-                <Table.Column title="#" :width="72">
-                  <template #default="{ index }">{{ index + 1 }}</template>
-                </Table.Column>
-                <Table.Column title="名称" data-index="name" :width="180">
-                  <template #default="{ record }">
-                    <Typography.Text strong>{{ record.name || record.address }}</Typography.Text>
-                  </template>
-                </Table.Column>
-                <Table.Column title="地址" data-index="address" ellipsis />
-                <Table.Column title="状态" data-index="status" :width="120">
-                  <template #default="{ record }">
-                    <Tag :color="record.status === 'online' ? 'green' : 'default'">{{ record.status === 'online' ? '已连接' : '未检测' }}</Tag>
-                  </template>
-                </Table.Column>
-                <Table.Column title="最后检测" data-index="last_checked_at" :width="180">
-                  <template #default="{ text }">{{ timestamp(text) }}</template>
-                </Table.Column>
-                <Table.Column title="操作" :width="210">
-                  <template #default="{ record }">
-                    <Button type="text" @click="testYybGoPanel(record)">检测</Button>
-                    <Button type="text" @click="openYybGoPanel(record)">编辑</Button>
-                    <Popconfirm title="确认删除这个 yyb-go？" @confirm="removeYybGoPanel(record)">
-                      <Button type="text" danger><Trash2 :size="16" /></Button>
-                    </Popconfirm>
-                  </template>
-                </Table.Column>
-              </Table>
-            </section>
-
-            <section v-if="page === 'daidai'" class="panel">
-              <div class="toolbar">
-                <div class="toolbar-left">
-                  <Button type="primary" @click="openDaidaiPanel()"><template #icon><Plus :size="16" /></template>添加呆呆面板</Button>
-                  <Button @click="loadDaidaiPanels"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
-                </div>
-                <Typography.Text class="muted">保存前会调用 /api/open-api/token，使用 app_key/app_secret 验证 Open API。</Typography.Text>
-              </div>
-              <Table row-key="id" :loading="daidai.loading" :data-source="daidai.rows" :pagination="{ total: daidai.total, pageSize: 20 }">
+              <Table v-else-if="containerKind === 'daidai'" row-key="id" :loading="daidai.loading" :data-source="daidai.rows" :pagination="{ total: daidai.total, pageSize: 20 }">
                 <Table.Column title="#" :width="72">
                   <template #default="{ index }">{{ index + 1 }}</template>
                 </Table.Column>
@@ -1931,6 +2214,55 @@ function recordOptions(record?: Record<string, string>) {
                     <Button type="text" @click="testDaidaiPanel(record)">检测</Button>
                     <Button type="text" @click="openDaidaiPanel(record)">编辑</Button>
                     <Popconfirm title="确认删除这个呆呆面板？" @confirm="removeDaidaiPanel(record)">
+                      <Button type="text" danger><Trash2 :size="16" /></Button>
+                    </Popconfirm>
+                  </template>
+                </Table.Column>
+              </Table>
+
+              <Table v-else row-key="id" :loading="yybgo.loading" :data-source="yybgo.rows" :pagination="{ total: yybgo.total, pageSize: 20 }">
+                <Table.Column title="#" :width="72">
+                  <template #default="{ index }">{{ index + 1 }}</template>
+                </Table.Column>
+                <Table.Column title="名称" data-index="name" :width="180">
+                  <template #default="{ record }">
+                    <Typography.Text strong>{{ record.name || record.address }}</Typography.Text>
+                  </template>
+                </Table.Column>
+                <Table.Column title="地址" data-index="address" ellipsis />
+                <Table.Column title="API AUTH" data-index="api_auth" :width="180">
+                  <template #default="{ text }">
+                    <Typography.Text code>{{ maskSecret(text) }}</Typography.Text>
+                  </template>
+                </Table.Column>
+                <Table.Column title="状态" data-index="status" :width="120">
+                  <template #default="{ record }">
+                    <Tag :color="record.status === 'online' ? 'green' : 'default'">{{ record.status === 'online' ? '验证通过' : '未检测' }}</Tag>
+                  </template>
+                </Table.Column>
+                <Table.Column title="用户组" data-index="group" :width="130">
+                  <template #default="{ record }">
+                    <Tag :color="record.group === 'VIP' ? 'gold' : record.group === 'PRO' ? 'blue' : record.group ? 'green' : 'default'">
+                      {{ record.group || '-' }}
+                    </Tag>
+                  </template>
+                </Table.Column>
+                <Table.Column title="积分" data-index="credit_balance" :width="110">
+                  <template #default="{ text }">
+                    <Typography.Text>{{ text || '-' }}</Typography.Text>
+                  </template>
+                </Table.Column>
+                <Table.Column title="账号额度" :width="120">
+                  <template #default="{ record }">{{ yybgoQuotaText(record) }}</template>
+                </Table.Column>
+                <Table.Column title="最后检测" data-index="last_checked_at" :width="180">
+                  <template #default="{ text }">{{ timestamp(text) }}</template>
+                </Table.Column>
+                <Table.Column title="操作" :width="210">
+                  <template #default="{ record }">
+                    <Button type="text" @click="testYybGoPanel(record)">检测</Button>
+                    <Button type="text" @click="openYybGoPanel(record)">编辑</Button>
+                    <Popconfirm title="确认删除这个 yybgo？" @confirm="removeYybGoPanel(record)">
                       <Button type="text" danger><Trash2 :size="16" /></Button>
                     </Popconfirm>
                   </template>
@@ -1962,6 +2294,7 @@ function recordOptions(record?: Record<string, string>) {
                     <Space direction="vertical" size="small">
                       <Space wrap>
                         <Typography.Text strong>{{ record.title || record.id }}</Typography.Text>
+                        <Tag v-if="pluginTriggerText(record)">口令 {{ pluginTriggerText(record) }}</Tag>
                         <Tag v-if="record.status === 1" color="green">可更新</Tag>
                       </Space>
                       <Typography.Text class="muted">{{ record.desc || '无描述' }}</Typography.Text>
@@ -1971,7 +2304,6 @@ function recordOptions(record?: Record<string, string>) {
                         <Tag v-if="record.status === 1" color="green">新版本 {{ record.latest_version || record.version || '-' }} / 当前 {{ record.current_version || '-' }}</Tag>
                         <Tag v-else-if="record.version">{{ record.version }}</Tag>
                         <Tag v-for="klass in pluginClassTags(record)" :key="klass" color="cyan">{{ klass }}</Tag>
-                        <Tag v-if="record.author">{{ record.author }}</Tag>
                         <Tag v-if="record.organization" color="blue">{{ record.organization }}</Tag>
                         <Tag v-if="record.running" color="green">运行中</Tag>
                         <Tag v-if="record.disable" color="red">禁用</Tag>
@@ -2052,7 +2384,7 @@ function recordOptions(record?: Record<string, string>) {
                     </template>
                   </Form>
                 </div>
-                <a-empty v-else :description="pluginConfigs.rows.length ? '请选择一个插件查看配置。' : '暂无插件配置。插件安装后会自动注册顶层声明的 ShaniuPluginConfig/form 配置。'" />
+                <Empty v-else :description="pluginConfigs.rows.length ? '请选择一个插件查看配置。' : '暂无插件配置。插件安装后会自动注册顶层声明的 ShaniuPluginConfig/form 配置。'" />
               </Spin>
             </section>
 
@@ -2081,30 +2413,26 @@ function recordOptions(record?: Record<string, string>) {
                 <Form.Item label="pnpm 镜像" extra="用于安装和更新脚本插件的 NodeJS 依赖。">
                   <Input v-model:value="settings.form.pnpm_registry" placeholder="https://registry.npmmirror.com" />
                 </Form.Item>
+                <Form.Item label="pipx 源" extra="用于安装 Python 脚本插件依赖。">
+                  <Input v-model:value="settings.form.pipx_registry" placeholder="https://pypi.tuna.tsinghua.edu.cn/simple" />
+                </Form.Item>
+                <Typography.Title :level="5">Telegram Bot</Typography.Title>
+                <Form.Item label="Token" extra="BotFather 提供的 Bot Token，保存后 Telegram 适配器会自动重启。">
+                  <Input.Password v-model:value="settings.form.telegram_token" placeholder="123456:ABC-DEF..." />
+                </Form.Item>
+                <Form.Item label="代理 API" extra="Telegram Bot API 地址，默认 https://api.telegram.org；网络不通时填写兼容反代地址。">
+                  <Input v-model:value="settings.form.telegram_api_base" placeholder="https://api.telegram.org" />
+                </Form.Item>
                 <Form.Item label="调试模式"><Switch v-model:checked="settings.form.debug" /></Form.Item>
                 <Form.Item label="未监听群允许管理员触发"><Switch v-model:checked="settings.form.listen_admin" /></Form.Item>
                 <Button type="primary" @click="saveSettings"><template #icon><Save :size="16" /></template>保存设置</Button>
               </Form>
             </section>
 
-            <section v-if="page === 'messages'" class="panel">
-              <Tabs v-model:active-key="msgState.active" :items="Object.entries(messageBuckets).map(([key, item]) => ({ key, label: item.label }))" />
-              <div class="toolbar-left" style="margin-bottom: 12px">
-                <Button type="primary" @click="openMessage()"><template #icon><Plus :size="16" /></template>新增</Button>
-                <Button @click="loadMessages"><template #icon><RefreshCw :size="16" /></template>刷新</Button>
-              </div>
-              <Table row-key="key" :data-source="msgState.rows">
-                <Table.Column title="号码" data-index="key" :width="220" />
-                <Table.Column title="平台" data-index="platform" :width="140" />
-                <Table.Column title="说明" data-index="desc" />
-                <Table.Column title="启用" data-index="enable" :width="90"><template #default="{ text }">{{ text ? '是' : '否' }}</template></Table.Column>
-                <Table.Column title="操作" :width="150"><template #default="{ record }"><Button type="text" @click="openMessage(record)">编辑</Button><Popconfirm title="确认删除？" @confirm="removeMessageRow(record)"><Button type="text" danger><Trash2 :size="16" /></Button></Popconfirm></template></Table.Column>
-              </Table>
-            </section>
           </main>
         </Layout>
 
-        <a-drawer
+        <Drawer
           v-model:open="mobileMenuOpen"
           class="mobile-menu-drawer"
           placement="left"
@@ -2114,7 +2442,7 @@ function recordOptions(record?: Record<string, string>) {
         >
           <div class="brand"><span class="brand-mark">S</span><span>Shaniu</span></div>
           <Menu mode="inline" :selected-keys="[page]" :items="menuItems" style="border-inline-end: 0; padding-top: 8px" @click="(e:any) => navigate(e.key)" />
-        </a-drawer>
+        </Drawer>
       </Layout>
 
       <Modal
@@ -2126,8 +2454,8 @@ function recordOptions(record?: Record<string, string>) {
         @ok="createScript"
       >
         <Form layout="vertical">
-          <Form.Item label="脚本文件名" required extra="会创建为 /data/plugins/文件名.js；不填写后缀会自动补全 .js。">
-            <Input v-model:value="scriptCreateState.fileName" placeholder="例如：daily-sign.js" @press-enter="createScript" />
+          <Form.Item label="脚本文件名" required extra="会创建为 /data/plugins/文件名.js 或 .py；不填写后缀会自动补全 .js。">
+            <Input v-model:value="scriptCreateState.fileName" placeholder="例如：daily-sign.js 或 daily-sign.py" @press-enter="createScript" />
           </Form.Item>
         </Form>
       </Modal>
@@ -2141,7 +2469,7 @@ function recordOptions(record?: Record<string, string>) {
       </Modal>
 
       <Modal :open="!!tasks.editing" title="定时任务" width="640px" @cancel="tasks.editing = null" @ok="saveTask">
-        <Form layout="vertical"><Form.Item label="标题" required help="定时任务标题不能为空"><Input v-model:value="tasks.form.title" placeholder="例如：每小时检查 IP" /></Form.Item><Form.Item label="Cron 表达式" required help="例如：0 * * * *，也支持带秒字段的 6 段表达式"><Input v-model:value="tasks.form.schedule" placeholder="0 * * * *" /></Form.Item><Form.Item label="触发命令"><Select v-model:value="tasks.form.command" show-search :options="tasks.scripts" placeholder="node xxx.js" /></Form.Item><Form.Item label="启用"><Switch v-model:checked="tasks.form.enable" /></Form.Item></Form>
+        <Form layout="vertical"><Form.Item label="标题" required help="定时任务标题不能为空"><Input v-model:value="tasks.form.title" placeholder="例如：每小时检查 IP" /></Form.Item><Form.Item label="Cron 表达式" required help="例如：0 * * * *，也支持带秒字段的 6 段表达式"><Input v-model:value="tasks.form.schedule" placeholder="0 * * * *" /></Form.Item><Form.Item label="触发命令"><Select v-model:value="tasks.form.command" show-search :options="tasks.scripts" placeholder="node xxx.js 或 python xxx.py" /></Form.Item><Form.Item label="启用"><Switch v-model:checked="tasks.form.enable" /></Form.Item></Form>
       </Modal>
 
       <Modal :open="!!carry.editing" title="搬运群组" width="820px" @cancel="carry.editing = null" @ok="saveCarry">
@@ -2171,7 +2499,7 @@ function recordOptions(record?: Record<string, string>) {
               <Space.Compact style="width: 100%">
                 <Input
                   v-model:value="plugins.sourceAddress"
-                  placeholder="https://github.com/melon0826/shaniu_Plugins 或 link://..."
+                  placeholder="https://github.com/smallfawn/shaniu_Plugins 或 link://..."
                   @press-enter="addPluginSource"
                 />
                 <Button type="primary" :loading="plugins.sourceSaving" @click="addPluginSource">
@@ -2229,13 +2557,16 @@ function recordOptions(record?: Record<string, string>) {
         </Form>
       </Modal>
 
-      <Modal :open="!!yybgo.editing" title="yyb-go" width="720px" :confirm-loading="yybgo.saving" @cancel="yybgo.editing = null" @ok="saveYybGoPanel">
+      <Modal :open="!!yybgo.editing" title="yybgo" width="720px" :confirm-loading="yybgo.saving" @cancel="yybgo.editing = null" @ok="saveYybGoPanel">
         <Form layout="vertical">
           <Form.Item label="名称">
-            <Input v-model:value="yybgo.form.name" placeholder="例如：主 yyb-go" />
+            <Input v-model:value="yybgo.form.name" placeholder="例如：主 yybgo" />
           </Form.Item>
-          <Form.Item label="yyb-go 地址" required>
+          <Form.Item label="yybgo 地址" required>
             <Input v-model:value="yybgo.form.address" placeholder="http://127.0.0.1:18787" />
+          </Form.Item>
+          <Form.Item label="API AUTH" required>
+            <Input.Password v-model:value="yybgo.form.api_auth" />
           </Form.Item>
           <Button @click="testYybGoPanel()" :loading="yybgo.testing">
             <template #icon><RefreshCw :size="16" /></template>检测连接
@@ -2282,5 +2613,5 @@ function recordOptions(record?: Record<string, string>) {
         <Form layout="vertical"><Form.Item :label="msgState.active === 'private' ? '用户 ID' : '群号'"><Input v-model:value="msgState.form.key" :disabled="!!msgState.editing?.value" /></Form.Item><Form.Item label="平台"><Select v-model:value="msgState.form.platform" :options="msgState.platforms" /></Form.Item><Form.Item label="说明"><Input v-model:value="msgState.form.desc" /></Form.Item><Form.Item label="启用"><Switch v-model:checked="msgState.form.enable" /></Form.Item></Form>
       </Modal>
     </AntApp>
-  </a-config-provider>
+  </ConfigProvider>
 </template>

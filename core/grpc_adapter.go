@@ -108,7 +108,7 @@ func (sg *ShaniuService) AdapterPush(ctx context.Context, req *srpc.AdapterReque
 		}
 		return &srpc.Default{Value: message_id}, nil
 	}
-	return &srpc.Default{Value: ""}, nil
+	return &srpc.Default{Value: ""}, err
 }
 
 func (sg *ShaniuService) AdapterSender(ctx context.Context, req *srpc.AdapterRequest) (*srpc.Default, error) {

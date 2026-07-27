@@ -21,14 +21,14 @@ func TestEnsureNodePackageJSONRepairsInvalidDependencyFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readNodeDependencies returned error: %v", err)
 	}
-	if len(deps) != len(nodeSillygirlRuntimeDependencies)+1 {
+	if len(deps) != len(nodeShaniuRuntimeDependencies)+1 {
 		t.Fatalf("unexpected dependencies: %#v", deps)
 	}
 	names := map[string]bool{}
 	for _, dep := range deps {
 		names[dep.Name] = true
 	}
-	for name := range nodeSillygirlRuntimeDependencies {
+	for name := range nodeShaniuRuntimeDependencies {
 		if !names[name] {
 			t.Fatalf("missing dependency %s in %#v", name, deps)
 		}
@@ -40,7 +40,7 @@ func TestEnsureNodePackageJSONRepairsInvalidDependencyFields(t *testing.T) {
 
 func TestNodeRuntimeDependenciesIncludeExpress(t *testing.T) {
 	for _, name := range []string{"@grpc/grpc-js", "express", "google-protobuf"} {
-		if _, ok := nodeSillygirlRuntimeDependencies[name]; !ok {
+		if _, ok := nodeShaniuRuntimeDependencies[name]; !ok {
 			t.Fatalf("missing runtime dependency %s", name)
 		}
 	}
@@ -48,8 +48,8 @@ func TestNodeRuntimeDependenciesIncludeExpress(t *testing.T) {
 
 func TestEnsureNodeSillygirlModuleWritesRuntimeFiles(t *testing.T) {
 	dir := t.TempDir()
-	if err := ensureNodeSillygirlModule(dir); err != nil {
-		t.Fatalf("ensureNodeSillygirlModule returned error: %v", err)
+	if err := ensureNodeShaniuModule(dir); err != nil {
+		t.Fatalf("ensureNodeShaniuModule returned error: %v", err)
 	}
 	for _, name := range []string{
 		filepath.Join("node_modules", "shaniu", "index.js"),

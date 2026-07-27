@@ -29,6 +29,18 @@ func TestCanUseAsCarryScriptAllowsCarryNodePlugin(t *testing.T) {
 	}
 }
 
+func TestCanUseAsCarryScriptAllowsCarryPythonPlugin(t *testing.T) {
+	fn := &common.Function{
+		UUID:  "script.py",
+		Type:  PYTHON,
+		Carry: true,
+		Rules: []string{"^hello$"},
+	}
+	if !canUseAsCarryScript(fn) {
+		t.Fatal("Python plugin with @carry should be available as carry script")
+	}
+}
+
 func TestCanUseAsCarryScriptRejectsLongRunningPlugin(t *testing.T) {
 	fn := &common.Function{
 		UUID:    "web.js",
@@ -62,6 +74,30 @@ func TestGetAdapterBotsIDReturnsAllWhenPlatformEmpty(t *testing.T) {
 	qq := GetAdapterBotsID("qq")
 	if len(qq) != 1 || qq[0] != "10001" {
 		t.Fatalf("GetAdapterBotsID(\"qq\") = %#v, want [10001]", qq)
+	}
+}
+
+func TestGetAdapterAllowsEmptyBotID(t *testing.T) {
+	BotsLocker.Lock()
+	original := Bots
+	qq := &Factory{botplt: "qq", botid: "10001"}
+	Bots = map[Bot]*Factory{
+		{"qq", "10001"}:       qq,
+		{"telegram", "20002"}: {botplt: "telegram", botid: "20002"},
+	}
+	BotsLocker.Unlock()
+	defer func() {
+		BotsLocker.Lock()
+		Bots = original
+		BotsLocker.Unlock()
+	}()
+
+	got, err := GetAdapter("qq", "")
+	if err != nil {
+		t.Fatalf("GetAdapter with empty bot id returned error: %v", err)
+	}
+	if got != qq {
+		t.Fatalf("GetAdapter with empty bot id = %#v, want qq adapter", got)
 	}
 }
 

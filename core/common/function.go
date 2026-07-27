@@ -1,7 +1,11 @@
 package common
 
+import "regexp"
+
 type Function struct {
 	Rules          []string                 `json:"-"`
+	RulePatterns   []*regexp.Regexp         `json:"-"`
+	RuleErrors     []error                  `json:"-"`
 	Params         [][]string               `json:"-"`
 	Admin          bool                     `json:"-"`
 	Handle         func(Sender) interface{} `json:"-"`
@@ -11,12 +15,12 @@ type Function struct {
 	Hidden         bool                     `json:"-"`
 	CronIds        []int                    `json:"-"`
 	Origin         string                   `json:"-"`
-	Rule           string                   `json:"rule,omitempty"`
 	UUID           string                   `json:"id"`
 	Title          string                   `json:"title"`
 	Type           string                   `json:"type"`   //脚本类型
 	Suffix         string                   `json:"suffix"` //脚本后缀
 	Description    string                   `json:"desc"`
+	Rule           string                   `json:"rule,omitempty"`
 	Public         bool                     `json:"public"`
 	Icon           string                   `json:"icon"`
 	Version        string                   `json:"version"`

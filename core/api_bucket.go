@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -59,9 +59,13 @@ func checkFilePlugin(key string, value *string) {
 	}
 }
 
+func shouldHideStorageKey(bucket string, key string) bool {
+	return key == storageBucketMarkerKey || isBackendVersionStorageKey(bucket, key)
+}
+
 func init() {
 	var shaniu = MakeBucket("shaniu")
-	GinApi(GET, "/api/storage/list", RequireAuth, func(ctx *gin.Context) {
+	GinApi(GET, "/api/admin/storage/list", RequireAuth, func(ctx *gin.Context) {
 		page, _ := strconv.Atoi(ctx.DefaultQuery("current", "1"))
 		perPage, _ := strconv.Atoi(ctx.DefaultQuery("pageSize", "20"))
 		keys := ctx.Query("keys")
@@ -74,6 +78,9 @@ func init() {
 		for _, bk := range arr {
 			ar := strings.SplitN(bk, ".", 2)
 			if len(ar) == 2 {
+				if isBackendVersionStorageKey(ar[0], ar[1]) {
+					continue
+				}
 				if ar[0] == "plugins" && false { //todo
 					// data[bk] = halfDeEct(MakeBucket(ar[0]).GetString(ar[1]))
 				} else {
@@ -87,7 +94,7 @@ func init() {
 			}
 			if len(ar) == 1 {
 				MakeBucket(ar[0]).Foreach(func(b1, b2 []byte) error {
-					if string(b1) == storageBucketMarkerKey {
+					if shouldHideStorageKey(ar[0], string(b1)) {
 						return nil
 					}
 					data = append(data, map[string]string{
@@ -112,7 +119,7 @@ func init() {
 		}
 		ApiList(ctx, res, len(data), map[string]interface{}{"page": page})
 	})
-	GinApi(GET, "/api/storage", RequireAuth, func(ctx *gin.Context) {
+	GinApi(GET, "/api/admin/storage", RequireAuth, func(ctx *gin.Context) {
 		keys := ctx.Query("keys")
 		if keys == "" {
 			buckets := shaniu.Buckets()
@@ -144,7 +151,7 @@ func init() {
 				b := MakeBucket(bucket)
 				b.Foreach(func(b1, b2 []byte) error {
 					key := string(b1)
-					if key == storageBucketMarkerKey {
+					if shouldHideStorageKey(bucket, key) {
 						return nil
 					}
 					value := string(b2)
@@ -172,6 +179,9 @@ func init() {
 		for _, bk := range arr {
 			ar := strings.SplitN(bk, ".", 2)
 			if len(ar) == 2 {
+				if isBackendVersionStorageKey(ar[0], ar[1]) {
+					continue
+				}
 				if ar[0] == "plugins" { //todo
 					value := MakeBucket(ar[0]).GetString(ar[1])
 					checkFilePlugin(ar[1], &value)
@@ -185,7 +195,7 @@ func init() {
 			}
 			if len(ar) == 1 {
 				MakeBucket(ar[0]).Foreach(func(b1, b2 []byte) error {
-					if string(b1) == storageBucketMarkerKey {
+					if shouldHideStorageKey(ar[0], string(b1)) {
 						return nil
 					}
 					data[bk+"."+string(b1)] = TransformBucketKeyValue(string(b2))
@@ -195,7 +205,7 @@ func init() {
 		}
 		ApiOK(ctx, data)
 	})
-	GinApi(PUT, "/api/storage", RequireAuth, func(ctx *gin.Context) {
+	GinApi(PUT, "/api/admin/storage", RequireAuth, func(ctx *gin.Context) {
 		uuid := ctx.Query("uuid")
 		if uuid != "" {
 			for _, f := range Functions {
@@ -209,7 +219,7 @@ func init() {
 				}
 			}
 		}
-		data, err := ioutil.ReadAll(ctx.Request.Body)
+		data, err := io.ReadAll(ctx.Request.Body)
 		if err != nil {
 			ApiFail(ctx, err.Error())
 			return
@@ -226,6 +236,11 @@ func init() {
 		for bk, v := range updates {
 			ar := strings.SplitN(bk, ".", 2)
 			if len(ar) == 2 {
+				if isBackendVersionStorageKey(ar[0], ar[1]) {
+					errors[bk] = "版本信息由后端维护，不允许在存储中修改"
+					changes[bk] = false
+					continue
+				}
 				bucket := MakeBucket(ar[0])
 				if ar[0] == "plugins" && fmt.Sprint(v) == "install" {
 					_, _, _ = SetBucketKeyValue2(bucket, ar[1], "")
@@ -268,7 +283,7 @@ func init() {
 			"changes":  changes,
 		})
 	})
-	GinApi(POST, "/api/storage/bucket", RequireAuth, func(ctx *gin.Context) {
+	GinApi(POST, "/api/admin/storage/bucket", RequireAuth, func(ctx *gin.Context) {
 		req := storageBucketRequest{}
 		if err := ctx.BindJSON(&req); err != nil {
 			ApiFail(ctx, err.Error())
@@ -291,7 +306,7 @@ func init() {
 		}
 		ApiOK(ctx, nil)
 	})
-	GinApi(DELETE, "/api/storage/bucket", RequireAuth, func(ctx *gin.Context) {
+	GinApi(DELETE, "/api/admin/storage/bucket", RequireAuth, func(ctx *gin.Context) {
 		req := storageBucketRequest{}
 		if err := ctx.BindJSON(&req); err != nil {
 			ApiFail(ctx, err.Error())

@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	appVersion          = "0.1.0"
+	appVersion          = "0.1.9"
 	appRepository       = "https://github.com/melon0826/shaniu"
 	remoteVersionRawURL = "https://raw.githubusercontent.com/melon0826/shaniu/refs/heads/main/VERSION"
 )
@@ -28,12 +28,55 @@ var appVersionState = struct {
 
 var appVersionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$`)
 
+var backendVersionStorageKeys = map[string]bool{
+	"compiled_at":    true,
+	"latest_version": true,
+	"remote_version": true,
+	"version":        true,
+}
+
 func currentAppVersion() string {
-	version := normalizeAppVersion(compiled_at)
+	version := normalizeAppVersion(compiledAppVersion())
 	if version == "" {
 		return appVersion
 	}
 	return version
+}
+
+func compiledAppVersion() string {
+	version := strings.TrimSpace(compiled_at)
+	if version == "" {
+		return appVersion
+	}
+	return version
+}
+
+func cleanupBackendVersionStorageKeys() {
+	for key := range backendVersionStorageKeys {
+		_, _, _ = shaniu.Set2(key, "")
+	}
+}
+
+func isBackendVersionStorageKey(bucket string, key string) bool {
+	bucket = strings.TrimSpace(bucket)
+	key = strings.TrimSpace(key)
+	if bucket == "" || bucket == "shaniu" || bucket == "app" {
+		bucket = "shaniu"
+	}
+	return bucket == "shaniu" && backendVersionStorageKeys[key]
+}
+
+func filterBackendVersionStorageKeys(bucket string, keys []string) []string {
+	if len(keys) == 0 {
+		return keys
+	}
+	filtered := keys[:0]
+	for _, key := range keys {
+		if !isBackendVersionStorageKey(bucket, key) {
+			filtered = append(filtered, key)
+		}
+	}
+	return filtered
 }
 
 func latestAppVersion() (string, string) {
@@ -42,7 +85,7 @@ func latestAppVersion() (string, string) {
 	source := appVersionState.source
 	appVersionState.RUnlock()
 
-	latest = normalizeAppVersion(firstNonEmpty(latest, shaniu.GetString("remote_version"), shaniu.GetString("latest_version")))
+	latest = normalizeAppVersion(latest)
 	if latest == "" {
 		latest = currentAppVersion()
 	}
@@ -133,8 +176,6 @@ func rememberLatestAppVersion(latest string, source string) {
 	appVersionState.source = source
 	appVersionState.checkedAt = time.Now()
 	appVersionState.Unlock()
-	shaniu.Set("remote_version", latest)
-	shaniu.Set("latest_version", latest)
 }
 
 func versionAcceleratedURLs(address string) []string {

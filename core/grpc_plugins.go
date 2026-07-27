@@ -29,7 +29,8 @@ func initNodePlugins() {
 	root := strings.ReplaceAll(nodePluginsRoot(), "\\", "/")
 	plugins := []string{root}
 	os.Mkdir(root, 0755)
-	_ = ensureNodeSillygirlModule(root)
+	_ = ensureNodeShaniuModule(root)
+	_, _ = ensurePythonShaniuModule()
 	// fmt.Println("root", root)
 	files, _ := ioutil.ReadDir(root)
 	for _, file := range files {
@@ -38,7 +39,7 @@ func initNodePlugins() {
 		}
 		path := root + "/" + file.Name()
 		if !file.IsDir() {
-			if class, ok := CheckMainIndex(file.Name()); ok && class == NODE {
+			if class, ok := CheckMainIndex(file.Name()); ok {
 				AddNodePlugin(path, nodePluginNameFromPath(path), class)
 			}
 			continue
@@ -92,12 +93,6 @@ func initNodePlugins() {
 				}
 			case 2:
 				class, plugin_index = CheckMainIndex(files[1])
-				// if files[1] == "main.js" {
-				// 	if files[1] == "main.js" {
-				// 		plugin_index = true
-				// 	}
-				// 	// fmt.Println("入口文件事件")
-				// }
 				plugin_name = files[0]
 			}
 			if plugin_name == "." {
@@ -113,7 +108,7 @@ func initNodePlugins() {
 							continue
 						}
 						index, class := FindMainIndex(event.Name)
-						if class == NODE {
+						if class != "" {
 							AddNodePlugin(index, nodePluginNameFromPath(index), class)
 						}
 						watcher.Add(event.Name)
@@ -224,8 +219,15 @@ func addNodePluginLocked(path, name, class string) error {
 		f.Suffix = ".py"
 	}
 	f.Path = path
-	if class == NODE && f.HasForm {
-		if err := registerNodePluginConfigSchema(path, uuid); err != nil {
+	if f.HasForm {
+		var err error
+		switch class {
+		case NODE:
+			err = registerNodePluginConfigSchema(path, uuid)
+		case PYTHON:
+			err = registerPythonPluginConfigSchema(path, uuid)
+		}
+		if err != nil {
 			console.Warn("插件配置自动注册失败 %s: %v", name, err)
 		}
 	}
@@ -239,7 +241,7 @@ func addNodePluginLocked(path, name, class string) error {
 		switch class {
 		case NODE:
 			workDir = nodePluginWorkDir(path)
-			if err := ensureNodeSillygirlModule(workDir); err != nil {
+			if err := ensureNodeShaniuModule(workDir); err != nil {
 				console.Error("NodeJS shaniu 模块初始化失败：%v", err)
 				return nil
 			}
@@ -260,9 +262,29 @@ func addNodePluginLocked(path, name, class string) error {
 				cmd = exec.Command(bin, path)
 			}
 		case PYTHON:
-			bin = "python3"
-			cmd = exec.Command(bin, "-u", path)
-			cmd.Env = append(cmd.Env, "PYTHONPATH=/home/user/Code/shaniu/proto3")
+			var args []string
+			var err error
+			bin, args, err = resolvePythonCommand()
+			if err != nil {
+				console.Error("Python 运行时未找到：%v", err)
+				return nil
+			}
+			args = append(args, "-u", path)
+			cmd = exec.Command(bin, args...)
+			pythonPath, err := ensurePythonShaniuModule()
+			if err != nil {
+				console.Error("Python shaniu 模块初始化失败：%v", err)
+				return nil
+			}
+			if err := ensurePipxRuntimeEnv(); err != nil {
+				console.Error("Python shaniu 运行时依赖安装失败：%v", err)
+				return nil
+			}
+			cmd.Env = append(cmd.Env,
+				"PYTHONPATH="+pythonPluginPathEnv(pythonPath),
+				"PYTHONDONTWRITEBYTECODE=1",
+				"PYTHONUNBUFFERED=1",
+			)
 		}
 
 		cmd.Dir = workDir
@@ -277,8 +299,10 @@ func addNodePluginLocked(path, name, class string) error {
 		cmd.Env = append(cmd.Env, "PLUGIN_ID="+uuid)
 		cmd.Env = append(cmd.Env, "SHANIU_GRPC_ADDR="+grpcClientAddress())
 		cmd.Env = append(cmd.Env, "SHANIU_GRPC_TOKEN="+grpcRuntimeMetadataToken())
-		if class == NODE {
+		if class == NODE || class == PYTHON {
 			cmd.Env = append(cmd.Env, "PLUGIN_CONFIG_JSON="+string(utils.JsonMarshal(getPluginUserConfig(uuid))))
+		}
+		if class == NODE {
 			if f.Web {
 				cmd.Env = append(cmd.Env, "SHANIU_WEB=true")
 			}
@@ -572,6 +596,14 @@ interface Message {
 	user_name?: string;
 	chat_name?: string;
 }
+interface PushAdminOptions {
+	platform?: string | string[];
+	platforms?: string[];
+	botId?: string;
+	bot_id?: string;
+	userIds?: string[];
+	users?: string[];
+}
 declare class Adapter {
 	platform: string;
 	bot_id: string;
@@ -588,6 +620,13 @@ declare class Adapter {
 	sender(options: any): Promise<Sender>;
 }
 declare let sender: Sender;
+declare function pushAdmin(content: string, options?: PushAdminOptions): Promise<{
+	platform: string;
+	bot_id: string;
+	user_id: string;
+	message_id?: string;
+	error?: string;
+}[]>;
 declare function sleep(ms?: number): Promise<unknown>;
 interface UpdateOptions {
 	mode?: string;
@@ -629,8 +668,7 @@ declare let console: {
 	error(...args: any[]): void;
 	debug(...args: any[]): void;
 };
-declare let express: any;
-export { Adapter, Bucket, QingLong, YybGo, DaiDai, shaniuCreateSchema, ShaniuPluginConfig, form, pluginConfigDefaults, sender, sleep, restart, update, utils, console, express };
+export { Adapter, Bucket, QingLong, YybGo, DaiDai, shaniuCreateSchema, ShaniuPluginConfig, form, pluginConfigDefaults, sender, pushAdmin, sleep, restart, update, utils, console };
 `
 
 func defaultScript(title string) string {
@@ -650,17 +688,37 @@ const {
   shaniuCreateSchema,
   ShaniuPluginConfig,
   form,
+  pushAdmin,
   restart,
   update,
-  express,
   utils: { buildCQTag, image, video },
 } = require("shaniu");
 `
 }
 
+func defaultPythonScript(title string) string {
+	return `"""
+* @title ` + title + `
+* @desc 这个人很懒什么都没有留下
+* @author ` + shaniu.GetString("author", "佚名") + `
+* @version v1.0.0
+"""
+
+import asyncio
+from shaniu import sender as s
+
+
+async def main():
+    await s.reply("pong")
+
+
+asyncio.run(main())
+`
+}
+
 const (
 	NODE    = "node"
-	PYTHON  = "python3"
+	PYTHON  = "python"
 	UNKNOWN = "unknown"
 )
 
@@ -685,21 +743,30 @@ func FindMainIndex(home string) (string, string) {
 		if info, err := os.Stat(index); err == nil && !info.IsDir() {
 			return strings.ReplaceAll(index, "\\", "/"), NODE
 		}
+		index = filepath.Join(home, pluginName+".py")
+		if info, err := os.Stat(index); err == nil && !info.IsDir() {
+			return strings.ReplaceAll(index, "\\", "/"), PYTHON
+		}
 	}
 	files, err := os.ReadDir(home)
 	if err == nil {
 		indexes := []string{}
+		classes := map[string]string{}
 		for _, file := range files {
-			if file.IsDir() || !strings.EqualFold(filepath.Ext(file.Name()), ".js") {
+			if file.IsDir() {
 				continue
 			}
-			if file.Name() == "demo.main.js" {
+			class, ok := CheckMainIndex(file.Name())
+			if !ok {
 				continue
 			}
-			indexes = append(indexes, filepath.Join(home, file.Name()))
+			index := filepath.Join(home, file.Name())
+			indexes = append(indexes, index)
+			classes[index] = class
 		}
 		if len(indexes) == 1 {
-			return strings.ReplaceAll(indexes[0], "\\", "/"), NODE
+			index := strings.ReplaceAll(indexes[0], "\\", "/")
+			return index, classes[indexes[0]]
 		}
 	}
 	return "", ""
@@ -714,6 +781,9 @@ func CheckMainIndex(filename string) (string, bool) {
 	}
 	if strings.EqualFold(filepath.Ext(filename), ".js") && filename != "demo.main.js" {
 		return NODE, true
+	}
+	if strings.EqualFold(filepath.Ext(filename), ".py") {
+		return PYTHON, true
 	}
 	return "", false
 }

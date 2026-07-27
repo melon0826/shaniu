@@ -12,9 +12,10 @@ export type ApiResult<T = unknown> = {
 export type CurrentUser = {
   name?: string;
   avatar?: string;
-  plugins?: Array<{ path: string; name: string; create_at?: string; type?: string; file?: string; plugin?: string }>;
+  plugins?: Array<{ path: string; name: string; create_at?: string; type?: 'node' | 'python' | string; file?: string; plugin?: string }>;
   adapters?: AdapterStatus[];
   integrations?: Record<string, IntegrationStatus>;
+  user_stats?: UserStats;
   version?: VersionInfo;
 };
 
@@ -40,11 +41,35 @@ export type VersionInfo = {
   repository?: string;
 };
 
+export type UserStats = {
+  total?: number;
+  today?: number;
+  error?: string;
+};
+
+export type AdminUserRow = {
+  id: string;
+  username: string;
+  nickname: string;
+  created_at?: number;
+  updated_at?: number;
+  disabled?: boolean;
+  storage_key?: string;
+  bindings?: {
+    qq?: string;
+    telegram?: string;
+    yybgo_openid?: string;
+    yybgo_openids?: string[];
+    updated_at?: number;
+  };
+};
+
 export type PluginInfo = {
   id: string;
   title: string;
   suffix?: string;
   desc?: string;
+  rule?: string;
   version?: string;
   author?: string;
   icon?: string;
@@ -125,11 +150,17 @@ export type YybGoPanel = {
   id?: string;
   name?: string;
   address: string;
+  api_auth: string;
   created_at?: number;
   updated_at?: number;
   last_checked_at?: number;
   status?: string;
   message?: string;
+  group?: string;
+  namespace?: string;
+  account_limit?: string;
+  account_used?: string;
+  credit_balance?: string;
 };
 
 export type DaidaiPanel = {
