@@ -8,9 +8,9 @@ replace gorm.io/gorm => github.com/go-gorm/gorm v1.22.5
 
 require (
 	github.com/Dreamacro/clash v1.17.0
-	github.com/beego/beego/v2 v2.2.1
+	github.com/beego/beego/v2 v2.3.6
 	github.com/boltdb/bolt v1.3.1
-	github.com/buger/jsonparser v1.1.1
+	github.com/buger/jsonparser v1.1.2
 	github.com/clbanning/mxj v1.8.4
 	github.com/elastic/go-elasticsearch/v6 v6.8.10
 	github.com/fsnotify/fsnotify v1.4.9
@@ -24,7 +24,7 @@ require (
 	github.com/rivo/uniseg v0.4.4
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/stretchr/testify v1.9.0
-	go.mongodb.org/mongo-driver v1.11.7
+	go.mongodb.org/mongo-driver v1.17.7
 	golang.org/x/net v0.56.0
 	google.golang.org/grpc v1.82.1
 )
@@ -36,19 +36,19 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.2 // indirect
 	github.com/gofrs/uuid/v5 v5.0.0 // indirect
-	github.com/golang/snappy v0.0.1 // indirect
-	github.com/klauspost/compress v1.13.6 // indirect
+	github.com/golang/snappy v0.0.4 // indirect
+	github.com/klauspost/compress v1.16.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.5 // indirect
 	github.com/miekg/dns v1.1.55 // indirect
-	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
+	github.com/montanaflynn/stats v0.7.1 // indirect
 	github.com/pelletier/go-toml/v2 v2.0.8 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
-	github.com/xdg-go/scram v1.1.1 // indirect
-	github.com/xdg-go/stringprep v1.0.3 // indirect
-	github.com/youmark/pkcs8 v0.0.0-20181117223130-1be2e3e5546d // indirect
+	github.com/xdg-go/scram v1.1.2 // indirect
+	github.com/xdg-go/stringprep v1.0.4 // indirect
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/arch v0.3.0 // indirect
 	golang.org/x/mod v0.37.0 // indirect
