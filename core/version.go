@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	appVersion          = "0.1.9"
+	appVersion          = "0.2.0"
 	appRepository       = "https://github.com/melon0826/shaniu"
-	remoteVersionRawURL = "https://raw.githubusercontent.com/melon0826/shaniu/refs/heads/main/VERSION"
+	remoteVersionRawURL = "https://raw.githubusercontent.com/smallfawn/sillyGirl/refs/heads/main/VERSION"
 )
 
 var appVersionState = struct {
