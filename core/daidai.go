@@ -44,12 +44,12 @@ type daidaiTokenResponse struct {
 }
 
 func init() {
-	GinApi(GET, "/api/daidai/panels", RequireAuth, func(ctx *gin.Context) {
+	GinApi(GET, "/api/admin/daidai/panels", RequireAuth, func(ctx *gin.Context) {
 		panels := getDaidaiPanels()
 		ApiList(ctx, panels, len(panels))
 	})
 
-	GinApi(POST, "/api/daidai/panel/test", RequireAuth, func(ctx *gin.Context) {
+	GinApi(POST, "/api/admin/daidai/panel/test", RequireAuth, func(ctx *gin.Context) {
 		panel := DaidaiPanel{}
 		if err := ctx.BindJSON(&panel); err != nil {
 			ApiFail(ctx, err.Error())
@@ -67,7 +67,7 @@ func init() {
 		ApiOK(ctx, result)
 	})
 
-	GinApi(POST, "/api/daidai/panel", RequireAuth, func(ctx *gin.Context) {
+	GinApi(POST, "/api/admin/daidai/panel", RequireAuth, func(ctx *gin.Context) {
 		panel := DaidaiPanel{}
 		if err := ctx.BindJSON(&panel); err != nil {
 			ApiFail(ctx, err.Error())
@@ -121,7 +121,7 @@ func init() {
 		ApiOK(ctx, panel)
 	})
 
-	GinApi(DELETE, "/api/daidai/panel", RequireAuth, func(ctx *gin.Context) {
+	GinApi(DELETE, "/api/admin/daidai/panel", RequireAuth, func(ctx *gin.Context) {
 		panel := DaidaiPanel{}
 		if err := ctx.BindJSON(&panel); err != nil {
 			ApiFail(ctx, err.Error())
@@ -245,7 +245,7 @@ func requestDaidaiToken(ctx context.Context, panel DaidaiPanel) (*daidaiTokenRes
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("呆呆面板接口 HTTP %d：%s", resp.StatusCode, daidaiTokenMessage(tokenResp, "请求失败"))
 	}
-	if tokenResp.Success == false && tokenResp.Data.AccessToken == "" {
+	if !tokenResp.Success && tokenResp.Data.AccessToken == "" {
 		return nil, errors.New(daidaiTokenMessage(tokenResp, "认证失败，请检查 app_key/app_secret"))
 	}
 	return tokenResp, nil

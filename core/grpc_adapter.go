@@ -27,6 +27,9 @@ func (sg *ShaniuService) AdapterRegist(stream srpc.ShaniuService_AdapterRegistSe
 		if adapter == nil {
 			bot_id := req.GetBotId()
 			platform := req.GetPlatform()
+			if !AdapterConfigEnabled(platform) {
+				return errors.New(platform + " adapter disabled")
+			}
 			adapter = &Factory{}
 			defer adapter.Destroy()
 			adapter.Init(platform, bot_id, nil)
@@ -83,6 +86,9 @@ func (sg *ShaniuService) AdapterReceive(ctx context.Context, req *srpc.AdapterRe
 	msgs := map[string]interface{}{}
 	bot_id := req.GetBotId()
 	platform := req.GetPlatform()
+	if !AdapterConfigEnabled(platform) {
+		return &srpc.Empty{}, errors.New(platform + " adapter disabled")
+	}
 	// fmt.Println("a ...any", bot_id, "=", platform, string(utils.JsonMarshal(msgs)))
 	json.Unmarshal([]byte(req.Value), &msgs)
 	adapter, err := GetAdapter(platform, bot_id)
@@ -97,6 +103,9 @@ func (sg *ShaniuService) AdapterPush(ctx context.Context, req *srpc.AdapterReque
 	msgs := map[string]string{}
 	bot_id := req.GetBotId()
 	platform := req.GetPlatform()
+	if !AdapterConfigEnabled(platform) {
+		return &srpc.Default{Value: ""}, errors.New(platform + " adapter disabled")
+	}
 	json.Unmarshal([]byte(req.Value), &msgs)
 	adapter, err := GetAdapter(platform, bot_id)
 	if err == nil {
@@ -115,6 +124,9 @@ func (sg *ShaniuService) AdapterSender(ctx context.Context, req *srpc.AdapterReq
 	msgs := map[string]string{}
 	bot_id := req.GetBotId()
 	platform := req.GetPlatform()
+	if !AdapterConfigEnabled(platform) {
+		return &srpc.Default{Value: ""}, errors.New(platform + " adapter disabled")
+	}
 	json.Unmarshal([]byte(req.Value), &msgs)
 	adapter, err := GetAdapter(platform, bot_id)
 	if err == nil {

@@ -99,12 +99,12 @@ func init() {
 		return nil
 	})
 	///可视化部分
-	GinApi(GET, "/api/setup/status", func(ctx *gin.Context) {
+	GinApi(GET, "/api/admin/setup/status", func(ctx *gin.Context) {
 		ApiOK(ctx, map[string]interface{}{
 			"initialized": strings.TrimSpace(password) != "",
 		})
 	})
-	GinApi(POST, "/api/setup/admin", func(ctx *gin.Context) {
+	GinApi(POST, "/api/admin/register", func(ctx *gin.Context) {
 		setupLock.Lock()
 		defer setupLock.Unlock()
 		if strings.TrimSpace(password) != "" {
@@ -144,7 +144,7 @@ func init() {
 			"expiresIn":        adminJWTExpireSeconds,
 		})
 	})
-	GinApi(POST, "/api/login/account", func(ctx *gin.Context) {
+	adminLoginHandler := func(ctx *gin.Context) {
 		var auth = struct {
 			Password string `json:"password"`
 			Username string `json:"username"`
@@ -183,8 +183,9 @@ func init() {
 			recordFailedLoginAttempt(ctx, auth.Username)
 			ApiFail(ctx, "账号或密码错误")
 		}
-	})
-	GinApi(POST, "/api/login/outLogin", DestroyAuth, func(ctx *gin.Context) {
+	}
+	GinApi(POST, "/api/admin/login", adminLoginHandler)
+	GinApi(POST, "/api/admin/outlogin", DestroyAuth, func(ctx *gin.Context) {
 		shaniu.Set("web_token", "")
 		ApiOK(ctx, nil)
 	})
@@ -193,7 +194,7 @@ func init() {
 		pluginNextUuid = utils.GenUUID()
 		shaniu.Set("pluginNextUuid", pluginNextUuid)
 	}
-	GinApi(GET, "/api/currentUser", RequireAuth, func(ctx *gin.Context) {
+	GinApi(GET, "/api/admin/currentUser", RequireAuth, func(ctx *gin.Context) {
 		rs := []Route{}
 		for _, f := range Functions {
 			if f.UUID == pluginNextUuid {
@@ -243,20 +244,10 @@ func init() {
 			"plugins":      rrs,
 			"adapters":     overviewAdapterStatuses(),
 			"integrations": overviewIntegrationStatuses(),
-			"version":      overviewVersionInfo(),
 			"user_stats":   overviewUserStats(),
+			"version":      overviewVersionInfo(),
 		})
 	})
-}
-
-func overviewVersionInfo() map[string]interface{} {
-	latest, source := latestAppVersion()
-	return map[string]interface{}{
-		"local":      currentAppVersion(),
-		"remote":     latest,
-		"source":     source,
-		"repository": appRepository,
-	}
 }
 
 func overviewUserStats() map[string]interface{} {
@@ -282,11 +273,22 @@ func overviewUserStats() map[string]interface{} {
 	}
 }
 
+func overviewVersionInfo() map[string]interface{} {
+	latest, source := latestAppVersion()
+	return map[string]interface{}{
+		"local":      currentAppVersion(),
+		"remote":     latest,
+		"source":     source,
+		"repository": appRepository,
+	}
+}
+
 func overviewAdapterStatuses() []map[string]interface{} {
 	platforms := []struct {
 		Platform string
 		Label    string
 	}{
+		{Platform: "clawbot", Label: "微信 ClawBot"},
 		{Platform: "pagermaid", Label: "Pagermaid"},
 		{Platform: "qq", Label: "QQ"},
 		{Platform: "web", Label: "Web"},
@@ -296,11 +298,13 @@ func overviewAdapterStatuses() []map[string]interface{} {
 	for _, item := range platforms {
 		botsID := GetAdapterBotsID(item.Platform)
 		rows = append(rows, map[string]interface{}{
-			"platform": item.Platform,
-			"label":    item.Label,
-			"online":   len(botsID) > 0,
-			"bots_id":  botsID,
-			"count":    len(botsID),
+			"platform":   item.Platform,
+			"label":      item.Label,
+			"online":     len(botsID) > 0,
+			"enabled":    AdapterConfigEnabled(item.Platform),
+			"manageable": AdapterConfigManageable(item.Platform),
+			"bots_id":    botsID,
+			"count":      len(botsID),
 		})
 	}
 	return rows
@@ -312,7 +316,7 @@ func overviewIntegrationStatuses() map[string]interface{} {
 	daidaiPanels := getDaidaiPanels()
 	return map[string]interface{}{
 		"qinglong": overviewPanelStatus("青龙容器", len(qinglongPanels), countOnlineQinglongPanels(qinglongPanels)),
-		"yybgo": overviewPanelStatus("yyb-go", len(yybgoPanels), countOnlineYybGoPanels(yybgoPanels)),
+		"yyb-go": overviewPanelStatus("yyb-go", len(yybgoPanels), countOnlineYybGoPanels(yybgoPanels)),
 		"daidai":   overviewPanelStatus("呆呆容器", len(daidaiPanels), countOnlineDaidaiPanels(daidaiPanels)),
 	}
 }
@@ -366,25 +370,6 @@ func DestroyAuth(c *gin.Context) {
 	c.SetCookie("token", "", -1, "/", "", false, true)
 }
 
-var tempAuth sync.Map
-
-func getTempAuth() string {
-	uuid := utils.GenUUID()
-	tempAuth.Store(uuid, time.Now().Unix())
-	return uuid
-}
-
-func checkTempAuth(uuid string) bool {
-	unix, ok := tempAuth.LoadAndDelete(uuid)
-	if !ok {
-		return false
-	}
-	if time.Now().Unix()-unix.(int64) > 1 {
-		return false
-	}
-	return true
-}
-
 func RequireAuth(c *gin.Context) {
 	if strings.TrimSpace(password) == "" {
 		ApiError(c, http.StatusUnauthorized, "后台未初始化，请先设置账号密码")
@@ -392,7 +377,7 @@ func RequireAuth(c *gin.Context) {
 	}
 	token := authTokenFromRequest(c)
 	_, err := CheckAuth(token)
-	if err != nil && !checkTempAuth(token) {
+	if err != nil {
 		ApiError(c, http.StatusUnauthorized, err.Error())
 		panic(err)
 	}

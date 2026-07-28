@@ -68,14 +68,7 @@ func initPluginList() {
 	sort.SliceStable(list, func(i, j int) bool {
 		return list[i].Description < list[j].Description
 	})
-	cyzl := "7642f5de-3300-11ed-8a79-52540066b468"
 	plugin_list = list
-	if shaniu.GetString("password") == "" && plugins.GetString(cyzl) == "" { //自动安装老版命令
-		plugins.Set(cyzl, "install")
-	}
-	// if plugins.GetString("78b15932-334f-11ed-8b59-aaaa00117a5c") == "" { //自动安装比价文案
-	// 	plugins.Set("78b15932-334f-11ed-8b59-aaaa00117a5c", "install")
-	// }
 }
 
 var plugin_downloads = MakeBucket("plugin_downloads")
@@ -229,7 +222,7 @@ func initWebPluginList() {
 			}
 			classesNum["全部"] = len(list)
 			if class != "全部" {
-				list, _ = classes[class]
+				list = classes[class]
 			}
 			rr.Class = classesNum
 			var origins = map[string]string{}
@@ -300,6 +293,7 @@ func initWebPluginList() {
 				}
 			}
 			for i := range rr.Data {
+				rr.Data[i].Icon = pluginIconOrDefault(rr.Data[i].Icon)
 				rr.Data[i].HasForm = false
 				rr.Data[i].Running = false
 				for j := range fc {
@@ -317,9 +311,6 @@ func initWebPluginList() {
 						}
 						if rr.Data[i].Status != 1 && Contains(publics, rr.Data[i].UUID) {
 							rr.Data[i].Status = 6
-						}
-						if rr.Data[i].Icon == "" {
-							rr.Data[i].Icon = "https://blog.example.com/huli.jpeg"
 						}
 						if fc[j].HasForm {
 							rr.Data[i].HasForm = true
@@ -459,6 +450,7 @@ func linkPluginSourceItems(address string) ([]*common.Function, error) {
 		item.Address = publisher.Address
 		item.Organization = publisher.Organization
 		item.Identified = publisher.Identified
+		item.Icon = pluginIconOrDefault(item.Icon)
 	}
 	sort.SliceStable(result.Data, func(i, j int) bool {
 		return result.Data[i].CreateAt > result.Data[j].CreateAt
@@ -488,6 +480,7 @@ type githubPublicFileIndexEntry struct {
 	Author       string   `json:"author"`
 	Version      string   `json:"version"`
 	Desc         string   `json:"desc"`
+	Icon         string   `json:"icon"`
 	Class        string   `json:"class"`
 	Rule         string   `json:"rule"`
 	Public       bool     `json:"public"`
@@ -612,6 +605,7 @@ func githubPluginSourceItems(address string) ([]*common.Function, error) {
 			Type:         class,
 			Suffix:       path.Ext(item.Path),
 			Description:  item.Path,
+			Icon:         defaultPluginIconURL,
 			Version:      "v1.0.0",
 			Author:       source.Owner,
 			Class:        source.Owner,
@@ -686,6 +680,7 @@ func githubPublicFileIndexItems(source *githubPluginSource) ([]*common.Function,
 			Suffix:       path.Ext(pluginPath),
 			Description:  record.Desc,
 			Rule:         strings.TrimSpace(record.Rule),
+			Icon:         pluginIconOrDefault(record.Icon),
 			Version:      firstNonEmpty(record.Version, "v1.0.0"),
 			Author:       firstNonEmpty(record.Author, source.Owner),
 			Class:        strings.Join(classes, " "),

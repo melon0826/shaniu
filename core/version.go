@@ -12,9 +12,9 @@ import (
 )
 
 const (
-	appVersion          = "0.2.0"
+	appVersion          = "0.2.2"
 	appRepository       = "https://github.com/melon0826/shaniu"
-	remoteVersionRawURL = "https://raw.githubusercontent.com/smallfawn/sillyGirl/refs/heads/main/VERSION"
+	remoteVersionRawURL = "https://raw.githubusercontent.com/melon0826/shaniu/refs/heads/main/VERSION"
 )
 
 var appVersionState = struct {
@@ -37,7 +37,7 @@ var backendVersionStorageKeys = map[string]bool{
 
 func currentAppVersion() string {
 	version := normalizeAppVersion(compiledAppVersion())
-	if version == "" {
+	if version == "" || !appVersionPattern.MatchString(version) {
 		return appVersion
 	}
 	return version
@@ -60,7 +60,7 @@ func cleanupBackendVersionStorageKeys() {
 func isBackendVersionStorageKey(bucket string, key string) bool {
 	bucket = strings.TrimSpace(bucket)
 	key = strings.TrimSpace(key)
-	if bucket == "" || bucket == "shaniu" || bucket == "app" {
+	if bucket == "" || bucket == "silly" || bucket == "app" {
 		bucket = "shaniu"
 	}
 	return bucket == "shaniu" && backendVersionStorageKeys[key]

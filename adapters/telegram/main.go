@@ -3,11 +3,15 @@ package telegram
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -20,8 +24,6 @@ import (
 )
 
 var telegram = core.MakeBucket("telegram")
-var tg = core.MakeBucket("tg")
-
 var runtime = struct {
 	sync.Mutex
 	cancel context.CancelFunc
@@ -74,12 +76,20 @@ type bot struct {
 	debug   bool
 }
 
+type replySegment struct {
+	kind  string
+	value string
+}
+
+const (
+	replySegmentText  = "text"
+	replySegmentImage = "image"
+)
+
+var cqImagePattern = regexp.MustCompile(`\[CQ:image,([^\]]+)\]`)
+
 func init() {
 	storage.Watch(telegram, "token", func(old, new, key string) *storage.Final {
-		go restart()
-		return nil
-	})
-	storage.Watch(telegram, "bot_token", func(old, new, key string) *storage.Final {
 		go restart()
 		return nil
 	})
@@ -87,7 +97,7 @@ func init() {
 		go restart()
 		return nil
 	})
-	storage.Watch(tg, "token", func(old, new, key string) *storage.Final {
+	storage.Watch(telegram, "api_base", func(old, new, key string) *storage.Final {
 		go restart()
 		return nil
 	})
@@ -124,11 +134,11 @@ func restart() {
 func run(ctx context.Context, token string) {
 	b := &bot{
 		token:   token,
-		baseURL: strings.TrimRight(firstNonEmpty(telegram.GetString("api_base"), tg.GetString("api_base"), "https://api.telegram.org"), "/"),
+		baseURL: strings.TrimRight(firstNonEmpty(telegram.GetString("api_base"), "https://api.telegram.org"), "/"),
 		client: &http.Client{
 			Timeout: 45 * time.Second,
 		},
-		debug: telegram.GetBool("debug", false) || tg.GetBool("debug", false),
+		debug: telegram.GetBool("debug", false),
 	}
 	if err := b.start(ctx); err != nil && ctx.Err() == nil {
 		core.Logs.Warn("telegram机器人启动失败：%v", err)
@@ -232,20 +242,96 @@ func (b *bot) reply(ctx context.Context, msg map[string]interface{}) string {
 	if chatID == "" {
 		chatID = stringValue(msg[core.USER_ID])
 	}
-	text := cleanMessage(stringValue(msg[core.CONETNT]))
-	if chatID == "" || text == "" {
+	segments := splitReplySegments(stringValue(msg[core.CONETNT]))
+	if chatID == "" || len(segments) == 0 {
 		return ""
 	}
+
+	lastMessageID := ""
+	for _, segment := range segments {
+		var (
+			messageID string
+			err       error
+		)
+		switch segment.kind {
+		case replySegmentImage:
+			messageID, err = b.sendPhoto(ctx, chatID, segment.value)
+		default:
+			messageID, err = b.sendText(ctx, chatID, segment.value)
+		}
+		if err != nil {
+			core.Logs.Warn("telegram发送消息失败：%v", err)
+			return ""
+		}
+		if messageID != "" {
+			lastMessageID = messageID
+		}
+	}
+	return lastMessageID
+}
+
+func (b *bot) sendText(ctx context.Context, chatID string, text string) (string, error) {
 	var resp apiResponse[message]
 	err := b.post(ctx, "sendMessage", map[string]interface{}{
 		"chat_id": chatID,
 		"text":    text,
 	}, &resp)
 	if err != nil {
-		core.Logs.Warn("telegram发送消息失败：%v", err)
-		return ""
+		return "", err
 	}
-	return strconv.FormatInt(resp.Result.MessageID, 10)
+	return strconv.FormatInt(resp.Result.MessageID, 10), nil
+}
+
+func (b *bot) sendPhoto(ctx context.Context, chatID string, photo string) (string, error) {
+	if data, filename, ok := decodeDataImage(photo); ok {
+		return b.uploadPhoto(ctx, chatID, filename, bytes.NewReader(data))
+	}
+	if isExistingFile(photo) {
+		file, err := os.Open(photo)
+		if err != nil {
+			return "", err
+		}
+		defer file.Close()
+		return b.uploadPhoto(ctx, chatID, filepath.Base(photo), file)
+	}
+	var resp apiResponse[message]
+	err := b.post(ctx, "sendPhoto", map[string]interface{}{
+		"chat_id": chatID,
+		"photo":   photo,
+	}, &resp)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(resp.Result.MessageID, 10), nil
+}
+
+func (b *bot) uploadPhoto(ctx context.Context, chatID string, filename string, reader io.Reader) (string, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	if err := writer.WriteField("chat_id", chatID); err != nil {
+		return "", err
+	}
+	part, err := writer.CreateFormFile("photo", filename)
+	if err != nil {
+		return "", err
+	}
+	if _, err := io.Copy(part, reader); err != nil {
+		return "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.apiURL("sendPhoto"), &body)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	var resp apiResponse[message]
+	if err := b.do(req, &resp); err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(resp.Result.MessageID, 10), nil
 }
 
 func (b *bot) getMe(ctx context.Context) (user, error) {
@@ -271,12 +357,8 @@ func (b *bot) getUpdates(ctx context.Context, offset int64) ([]update, error) {
 }
 
 func (b *bot) deleteWebhook(ctx context.Context) error {
-	params := map[string]interface{}{}
-	if telegram.GetBool("drop_pending_updates", true) {
-		params["drop_pending_updates"] = true
-	}
 	var resp apiResponse[bool]
-	return b.post(ctx, "deleteWebhook", params, &resp)
+	return b.post(ctx, "deleteWebhook", map[string]interface{}{}, &resp)
 }
 
 func (b *bot) get(ctx context.Context, method string, params map[string]string, out interface{}) error {
@@ -344,18 +426,11 @@ func (b *bot) apiURL(method string) string {
 }
 
 func getToken() string {
-	return firstNonEmpty(
-		telegram.GetString("token"),
-		telegram.GetString("bot_token"),
-		tg.GetString("token"),
-	)
+	return strings.TrimSpace(telegram.GetString("token"))
 }
 
 func enabled() bool {
 	value := strings.TrimSpace(strings.ToLower(telegram.GetString("enable")))
-	if value == "" {
-		value = strings.TrimSpace(strings.ToLower(tg.GetString("enable")))
-	}
 	return value != "false" && value != "0" && value != "no" && value != "off"
 }
 
@@ -394,7 +469,96 @@ func stringValue(value interface{}) string {
 	return strings.TrimSpace(fmt.Sprint(value))
 }
 
-func cleanMessage(text string) string {
-	text = regexp.MustCompile(`\[CQ:image,[^\]]+\]`).ReplaceAllString(text, "")
-	return strings.TrimSpace(text)
+func splitReplySegments(text string) []replySegment {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	segments := make([]replySegment, 0, 2)
+	last := 0
+	matches := cqImagePattern.FindAllStringSubmatchIndex(text, -1)
+	for _, match := range matches {
+		if match[0] > last {
+			appendReplyTextSegment(&segments, text[last:match[0]])
+		}
+		attrs := parseCQParams(text[match[2]:match[3]])
+		image := firstNonEmpty(attrs["file"], attrs["url"])
+		if image != "" {
+			segments = append(segments, replySegment{kind: replySegmentImage, value: image})
+		}
+		last = match[1]
+	}
+	if last < len(text) {
+		appendReplyTextSegment(&segments, text[last:])
+	}
+	return segments
+}
+
+func appendReplyTextSegment(segments *[]replySegment, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	*segments = append(*segments, replySegment{kind: replySegmentText, value: text})
+}
+
+func parseCQParams(raw string) map[string]string {
+	params := map[string]string{}
+	for _, item := range strings.Split(raw, ",") {
+		key, value, ok := strings.Cut(item, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		params[key] = decodeCQValue(value)
+	}
+	return params
+}
+
+func decodeCQValue(value string) string {
+	value = strings.TrimSpace(value)
+	replacer := strings.NewReplacer(
+		"&#44;", ",",
+		"&#91;", "[",
+		"&#93;", "]",
+		"&amp;", "&",
+	)
+	return replacer.Replace(value)
+}
+
+func decodeDataImage(value string) ([]byte, string, bool) {
+	if !strings.HasPrefix(value, "data:image/") {
+		return nil, "", false
+	}
+	header, encoded, ok := strings.Cut(value, ",")
+	if !ok || !strings.Contains(header, ";base64") {
+		return nil, "", false
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, "", false
+	}
+	ext := "png"
+	if mimeType, _, ok := strings.Cut(strings.TrimPrefix(header, "data:"), ";"); ok {
+		switch mimeType {
+		case "image/jpeg":
+			ext = "jpg"
+		case "image/gif":
+			ext = "gif"
+		case "image/webp":
+			ext = "webp"
+		}
+	}
+	return data, "image." + ext, true
+}
+
+func isExistingFile(value string) bool {
+	if value == "" || strings.Contains(value, "://") {
+		return false
+	}
+	info, err := os.Stat(value)
+	return err == nil && !info.IsDir()
 }

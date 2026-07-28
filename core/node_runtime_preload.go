@@ -3,9 +3,12 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/melon0826/shaniu/utils"
 )
+
+var nodeRuntimePreloadCache sync.Map
 
 func ensureNodeRuntimePreload() (string, error) {
 	dir := filepath.Join(utils.ExecPath, "language", "node")
@@ -13,9 +16,13 @@ func ensureNodeRuntimePreload() (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, "shaniu-runtime-preload.js")
-	if err := os.WriteFile(path, []byte(nodeRuntimePreloadScript), 0644); err != nil {
+	if _, ok := nodeRuntimePreloadCache.Load(path); ok {
+		return path, nil
+	}
+	if err := writeFileIfChanged(path, []byte(nodeRuntimePreloadScript), 0644); err != nil {
 		return "", err
 	}
+	nodeRuntimePreloadCache.Store(path, true)
 	return path, nil
 }
 
@@ -126,7 +133,7 @@ const nodeRuntimePreloadScript = `
     globalThis.Adapter = sg.Adapter;
     globalThis.Bucket = sg.Bucket;
     globalThis.QingLong = sg.QingLong;
-  globalThis.YybGo = sg.YybGo;
+    globalThis.YybGo = sg.YybGo;
     globalThis.DaiDai = sg.DaiDai;
     globalThis.shaniuCreateSchema = shaniuCreateSchema;
     globalThis.ShaniuPluginConfig = ShaniuPluginConfig;
@@ -159,6 +166,12 @@ const nodeRuntimePreloadScript = `
       sg = globalThis.shaniu || {};
     }
   }
+  const Module = require("module");
+  const originalLoad = Module._load;
+  Module._load = function (request, parent, isMain) {
+    if (request === "shaniu") return sg;
+    return originalLoad.apply(this, arguments);
+  };
   const Bucket = sg && sg.Bucket;
   if (!Bucket) return;
 
@@ -390,7 +403,7 @@ const nodeRuntimePreloadScript = `
       await this.ready;
       const resp = await fetch(this.address + apiPath(path, "") + queryString(query), {
         method: String(method || "GET").toUpperCase(),
-        headers: Object.assign({}, body == null ? {} : { "Content-Type": "application/json" }),
+        headers: body == null ? {} : { "Content-Type": "application/json" },
         body: body == null ? undefined : JSON.stringify(body),
       });
       const text = await resp.text();
@@ -521,13 +534,6 @@ const nodeRuntimePreloadScript = `
   sg.ShaniuPluginConfig = sg.ShaniuPluginConfig || ShaniuPluginConfig;
   sg.form = sg.form || form;
   sg.pluginConfigDefaults = sg.pluginConfigDefaults || collectSchemaDefaults;
-  if (!sg.express) {
-    Object.defineProperty(sg, "express", {
-      enumerable: true,
-      configurable: true,
-      get: function () { return require("express"); },
-    });
-  }
   globalThis.QingLong = sg.QingLong;
   globalThis.YybGo = sg.YybGo;
   globalThis.DaiDai = sg.DaiDai;
@@ -537,10 +543,5 @@ const nodeRuntimePreloadScript = `
   globalThis.pluginConfigDefaults = sg.pluginConfigDefaults;
   globalThis.restart = sg.restart;
   globalThis.update = sg.update;
-  Object.defineProperty(globalThis, "express", {
-    enumerable: true,
-    configurable: true,
-    get: function () { return sg.express; },
-  });
 })();
 `

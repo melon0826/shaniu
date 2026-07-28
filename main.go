@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	_ "github.com/melon0826/shaniu/adapters/clawbot"
+	_ "github.com/melon0826/shaniu/adapters/pagermaid"
 	_ "github.com/melon0826/shaniu/adapters/qq"
 	_ "github.com/melon0826/shaniu/adapters/telegram"
 	"github.com/melon0826/shaniu/adapters/web"
