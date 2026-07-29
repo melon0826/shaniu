@@ -12,6 +12,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         index: 'index.html',
+        home: 'home.html',
         user: 'user.html',
       },
       output: {

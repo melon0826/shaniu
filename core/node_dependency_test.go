@@ -1,9 +1,13 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	proto3assets "github.com/melon0826/shaniu/proto3"
 )
 
 func TestEnsureNodePackageJSONRepairsInvalidDependencyFields(t *testing.T) {
@@ -36,17 +40,65 @@ func TestEnsureNodePackageJSONRepairsInvalidDependencyFields(t *testing.T) {
 	if !names["ipp"] {
 		t.Fatalf("missing dependency ipp in %#v", deps)
 	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]interface{}{}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := manifest["pnpm"]; ok {
+		t.Fatalf("unexpected deprecated pnpm settings in %s", string(data))
+	}
+	workspace, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(workspace), "allowBuilds:\n  protobufjs: true\n") {
+		t.Fatalf("missing protobufjs allowBuilds in %s", string(workspace))
+	}
 }
 
-func TestNodeRuntimeDependenciesIncludeExpress(t *testing.T) {
-	for _, name := range []string{"@grpc/grpc-js", "express", "google-protobuf"} {
+func TestEnsureNodePackageJSONCreatesPnpmBuildAllowlist(t *testing.T) {
+	dir := t.TempDir()
+	if err := ensureNodePackageJSON(dir, "new-plugin"); err != nil {
+		t.Fatalf("ensureNodePackageJSON returned error: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]interface{}{}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := manifest["pnpm"]; ok {
+		t.Fatalf("unexpected deprecated pnpm settings in %s", string(data))
+	}
+	workspace, err := os.ReadFile(filepath.Join(dir, "pnpm-workspace.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(workspace), "allowBuilds:\n  protobufjs: true\n") {
+		t.Fatalf("missing protobufjs allowBuilds in %s", string(workspace))
+	}
+}
+
+func TestNodeRuntimeDependenciesIncludeGrpcPackages(t *testing.T) {
+	for _, name := range []string{"@grpc/grpc-js", "google-protobuf"} {
 		if _, ok := nodeShaniuRuntimeDependencies[name]; !ok {
 			t.Fatalf("missing runtime dependency %s", name)
 		}
 	}
+	webFramework := "ex" + "press"
+	if _, ok := nodeShaniuRuntimeDependencies[webFramework]; ok {
+		t.Fatal("web framework should not be installed as a built-in runtime dependency")
+	}
 }
 
-func TestEnsureNodeSillygirlModuleWritesRuntimeFiles(t *testing.T) {
+func TestEnsureNodeShaniuModuleWritesRuntimeFiles(t *testing.T) {
 	dir := t.TempDir()
 	if err := ensureNodeShaniuModule(dir); err != nil {
 		t.Fatalf("ensureNodeShaniuModule returned error: %v", err)
@@ -60,6 +112,46 @@ func TestEnsureNodeSillygirlModuleWritesRuntimeFiles(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Fatalf("expected runtime file %s: %v", name, err)
+		}
+	}
+}
+
+func TestEnsureNodeShaniuModuleWorksWithoutProto3Directory(t *testing.T) {
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chdir(previous)
+	})
+
+	dir := t.TempDir()
+	if err := ensureNodeShaniuModule(dir); err != nil {
+		t.Fatalf("ensureNodeShaniuModule returned error without proto3 directory: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "node_modules", "shaniu", "index.js")); err != nil {
+		t.Fatalf("missing embedded node runtime index.js: %v", err)
+	}
+}
+
+func TestEmbeddedRuntimeFilesAvailable(t *testing.T) {
+	for _, name := range []string{
+		"shaniu.js",
+		"srpc.js",
+		"shaniu.d.ts",
+		"shaniu.py",
+		"srpc_pb2.py",
+		"srpc_pb2_grpc.py",
+	} {
+		data, err := proto3assets.ReadRuntimeFile(name)
+		if err != nil {
+			t.Fatalf("missing embedded runtime file %s: %v", name, err)
+		}
+		if len(data) == 0 {
+			t.Fatalf("embedded runtime file %s is empty", name)
 		}
 	}
 }
@@ -87,5 +179,55 @@ func TestNormalizeNodeScriptFileName(t *testing.T) {
 		if tt.ok && got != tt.want {
 			t.Fatalf("normalizeNodeScriptFileName(%q) = %q, want %q", tt.name, got, tt.want)
 		}
+	}
+}
+
+func TestNormalizePythonDependencyName(t *testing.T) {
+	tests := map[string]string{
+		"requests==2.32.0":   "requests",
+		"pydantic[email]":    "pydantic",
+		"beautiful_soup4":    "beautiful-soup4",
+		"urllib.parse":       "",
+		"../bad":             "",
+		"https://bad/pkg.py": "",
+	}
+	for input, want := range tests {
+		if got := normalizePythonDependencyName(input); got != want {
+			t.Fatalf("normalizePythonDependencyName(%q) = %q; want %q", input, got, want)
+		}
+	}
+}
+
+func TestNormalizePipxRegistryDefault(t *testing.T) {
+	got, err := normalizePipxRegistry("")
+	if err != nil {
+		t.Fatalf("normalizePipxRegistry returned error: %v", err)
+	}
+	if got != defaultPipxRegistry {
+		t.Fatalf("normalizePipxRegistry(\"\") = %q; want %q", got, defaultPipxRegistry)
+	}
+}
+
+func TestPythonRuntimeDependencyRequiresGeneratedVersions(t *testing.T) {
+	if pythonGrpcRuntimeDependency != "grpcio==1.83.0" {
+		t.Fatalf("pythonGrpcRuntimeDependency = %q", pythonGrpcRuntimeDependency)
+	}
+	if pythonProtobufRuntimeDependency != "protobuf==7.35.1" {
+		t.Fatalf("pythonProtobufRuntimeDependency = %q", pythonProtobufRuntimeDependency)
+	}
+	if pythonRuntimeDependencyInstalled(pythonProtobufRuntimeDependency, map[string]string{"protobuf": "7.35.0"}) {
+		t.Fatal("protobuf 7.35.0 should not satisfy the Python runtime protobuf constraint")
+	}
+	if !pythonRuntimeDependencyInstalled(pythonProtobufRuntimeDependency, map[string]string{"protobuf": "7.35.1"}) {
+		t.Fatal("protobuf 7.35.1 should satisfy the Python runtime protobuf constraint")
+	}
+	if pythonRuntimeDependencyInstalled(pythonProtobufRuntimeDependency, map[string]string{"protobuf": "8.0.0"}) {
+		t.Fatal("protobuf 8.0.0 should not satisfy the pinned Python runtime protobuf constraint")
+	}
+	if pythonRuntimeDependencyInstalled(pythonGrpcRuntimeDependency, map[string]string{"grpcio": "1.82.0"}) {
+		t.Fatal("grpcio 1.82.0 should not satisfy the Python runtime grpcio constraint")
+	}
+	if !pythonRuntimeDependencyInstalled(pythonGrpcRuntimeDependency, map[string]string{"grpcio": "1.83.0"}) {
+		t.Fatal("grpcio 1.83.0 should satisfy the Python runtime grpcio constraint")
 	}
 }

@@ -38,6 +38,7 @@ exports.form = form;
 exports.pluginConfigDefaults = pluginConfigDefaults;
 exports.pushAdmin = pushAdmin;
 exports.sleep = sleep;
+exports.version = version;
 exports.restart = restart;
 exports.update = update;
 const srpc_1 = require("./srpc");
@@ -855,7 +856,7 @@ class YybGo {
     }
     async request(method, path, body, query) {
         await this.ready;
-        const headers = { auth: String(this.panel.api_auth || "") };
+        const headers = {};
         if (body !== undefined && body !== null)
             headers["Content-Type"] = "application/json";
         const response = await fetch(`${this.address}${normalizeRuntimePath(path, "")}${queryString(query || {})}`, {
@@ -1248,6 +1249,16 @@ function restartStamp() {
 }
 async function restart() {
     return new Bucket("shaniu").set("started_at", restartStamp());
+}
+async function version() {
+    const current = String(process.env?.SHANIU_VERSION || "").trim() || "unknown";
+    const remote = String(process.env?.SHANIU_REMOTE_VERSION || "").trim() || current;
+    return {
+        current,
+        remote,
+        source: String(process.env?.SHANIU_VERSION_SOURCE || "").trim(),
+        repository: String(process.env?.SHANIU_REPOSITORY || "").trim(),
+    };
 }
 async function update(options = {}) {
     const timeout = clampNumber(options.timeout || 120, 10, 600);

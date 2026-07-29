@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/goccy/go-json"
+	proto3assets "github.com/melon0826/shaniu/proto3"
 	"github.com/melon0826/shaniu/utils"
 )
 
@@ -26,7 +27,7 @@ var pythonCommandCache = struct {
 }{}
 
 func ensurePythonShaniuModule() (string, error) {
-	if configured := strings.TrimSpace(os.Getenv("SHANIU_PYTHON_PATH")); configured != "" {
+	if configured := strings.TrimSpace(os.Getenv(		"SHANIU_PYTHON_PATH")); configured != "" {
 		if _, ok := pythonShaniuModuleCache.Load(configured); ok {
 			return configured, nil
 		}
@@ -69,6 +70,9 @@ func copyPythonRuntimeFile(name, target string) error {
 			return nil
 		}
 	}
+	if data, err := proto3assets.ReadRuntimeFile(name); err == nil {
+		return writeFileIfChanged(target, data, 0644)
+	}
 	return fmt.Errorf("缺少 Python shaniu 运行时文件：%s", name)
 }
 
@@ -84,7 +88,7 @@ func pythonRuntimeSourceCandidates(name string) []string {
 	if wd != "" {
 		candidates = append(candidates, filepath.Join(wd, "proto3", name))
 	}
-	return candidates
+	return dedupeCleanPaths(candidates)
 }
 
 func resolvePythonCommand() (string, []string, error) {

@@ -45,6 +45,7 @@ func registerNodePluginConfigSchema(path, uuid string) error {
 		"SHANIU_CONFIG_REGISTER_ONLY=true",
 		"SHANIU_CONFIG_SCHEMA_FILE="+tempPath,
 	)
+	cmd.Env = append(cmd.Env, shaniuRuntimeEnv()...)
 	if nodePath := nodeRuntimeNodePath(); nodePath != "" {
 		cmd.Env = append(cmd.Env, "NODE_PATH="+nodePath)
 	}

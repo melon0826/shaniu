@@ -192,8 +192,8 @@ const overviewIntegrations = computed(() => {
 const overviewVersion = computed(() => {
   const info = user.value?.version || {};
   return {
-    local: info.local || '0.2.2',
-    remote: info.remote || info.local || '0.2.2',
+    local: info.local || '0.2.4',
+    remote: info.remote || info.local || '0.2.4',
     source: info.source || 'reserved',
     repository: info.repository || 'https://github.com/melon0826/shaniu',
   };

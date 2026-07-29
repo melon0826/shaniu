@@ -76,14 +76,14 @@ const userInitial = computed(() => {
 
 const panelOptions = computed(() => panels.value.map((item) => ({
   value: item.index,
-  label: `${item.index}`,
+  label: `编号 ${item.index}`,
 })));
 const qrTypeOptions = [
   { value: 1, label: '应用宝' },
   { value: 2, label: '手游助手' },
 ];
 
-const selectedPanelText = computed(() => `${selectedPanel.value || 1}`);
+const selectedPanelText = computed(() => `编号 ${selectedPanel.value || 1}`);
 const yybgoOpenids = computed(() => normalizeOpenids(bindings));
 
 const qrImage = computed(() => {
@@ -187,7 +187,7 @@ async function removeBinding(platform: 'qq' | 'telegram') {
 
 async function openYybGoLogin() {
   if (!panels.value.length) {
-    message.error('后台还没有绑定 yyb-go');
+    message.error('后台还没有绑定 yybgo');
     return;
   }
   yybgo.qrOpen = true;
@@ -226,9 +226,9 @@ async function confirmYybGoLogin() {
     });
     Object.assign(bindings, data.bindings || { yybgo_openid: data.openid, yybgo_openids: data.openid ? [data.openid] : [] });
     yybgo.qrOpen = false;
-    message.success('yyb-go 登录成功');
+    message.success('yybgo 登录成功');
   } catch (error) {
-    message.error(error instanceof Error ? error.message : '未检测到 yyb-go 登录');
+    message.error(error instanceof Error ? error.message : '未检测到 yybgo 登录');
   } finally {
     yybgo.confirmLoading = false;
   }
@@ -300,7 +300,7 @@ onMounted(loadProfile);
                   <Space wrap>
                     <Tag :color="bindings.qq ? 'green' : 'default'">QQ {{ bindings.qq || '未绑定' }}</Tag>
                     <Tag :color="bindings.telegram ? 'green' : 'default'">TG {{ bindings.telegram || '未绑定' }}</Tag>
-                    <Tag :color="yybgoOpenids.length ? 'green' : 'default'">yyb-go {{ yybgoOpenids.length ? `${yybgoOpenids.length} 个账号` : '未登录' }}</Tag>
+                    <Tag :color="yybgoOpenids.length ? 'green' : 'default'">yybgo {{ yybgoOpenids.length ? `${yybgoOpenids.length} 个账号` : '未登录' }}</Tag>
                   </Space>
                 </Space>
               </Card>
@@ -310,34 +310,34 @@ onMounted(loadProfile);
               <Col :xs="24" :lg="15">
                 <Card class="user-panel" :bordered="false">
                   <template #title>
-                    <Space><QrCode :size="18" />yyb-go 账号</Space>
+                    <Space><QrCode :size="18" />yybgo 账号</Space>
                   </template>
 
                   <Alert
                     v-if="!panels.length"
                     type="warning"
                     show-icon
-                    message="后台还没有绑定 yyb-go"
-                    description="请管理员先在后台添加 yyb-go 面板后，普通用户才能添加 yyb-go 账号。"
+                    message="后台还没有绑定 yybgo"
+                    description="请管理员先在后台添加 yybgo 面板后，普通用户才能添加 yybgo 账号。"
                   />
 
                   <div v-else class="yybgo-account">
                     <div class="yybgo-status">
-                      <Typography.Text strong>当前 yyb-go openid</Typography.Text>
+                      <Typography.Text strong>当前 yybgo openid</Typography.Text>
                       <Space v-if="yybgoOpenids.length" direction="vertical" size="small">
                         <Typography.Text v-for="openid in yybgoOpenids" :key="openid" class="mono">{{ openid }}</Typography.Text>
                       </Space>
                       <Typography.Text v-else class="muted">未登录</Typography.Text>
                     </div>
                     <Form layout="vertical" class="yybgo-form">
-                      <Form.Item label="yyb-go 面板">
+                      <Form.Item label="yybgo 面板">
                         <Select v-model:value="selectedPanel" :options="panelOptions" />
                       </Form.Item>
                       <Form.Item label="二维码类型">
                         <Select v-model:value="yybgo.qrType" :options="qrTypeOptions" />
                       </Form.Item>
                       <Button type="primary" size="large" @click="openYybGoLogin">
-                        添加 yyb-go 账号
+                        添加 yybgo 账号
                       </Button>
                     </Form>
                   </div>
@@ -392,18 +392,18 @@ onMounted(loadProfile);
 
         <Modal
           v-model:open="yybgo.qrOpen"
-          title="添加 yyb-go 账号"
+          title="添加 yybgo 账号"
           ok-text="确认登录"
           cancel-text="取消"
           :confirm-loading="yybgo.confirmLoading"
           @ok="confirmYybGoLogin"
         >
           <Space direction="vertical" size="middle" class="qr-modal">
-            <Alert type="info" show-icon :message="`请在 2 分钟内使用编号 ${selectedPanelText} 扫码登录，完成后点击确认登录。`" />
+            <Alert type="info" show-icon :message="`请在 2 分钟内使用 ${selectedPanelText} 扫码登录，完成后点击确认登录。`" />
             <div class="qr-box">
               <span v-if="yybgo.qrLoading" class="muted">二维码生成中...</span>
-              <img v-else-if="qrImage" :src="qrImage" alt="yyb-go 二维码" />
-              <span v-else class="muted">未识别到二维码图片，请检查 yyb-go 返回。</span>
+              <img v-else-if="qrImage" :src="qrImage" alt="yybgo 二维码" />
+              <span v-else class="muted">未识别到二维码图片，请检查 yybgo 返回。</span>
             </div>
             <Typography.Text v-if="yybgo.uuid" class="mono">UUID: {{ yybgo.uuid }}</Typography.Text>
           </Space>
