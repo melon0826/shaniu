@@ -27,7 +27,7 @@ func remStatic(uuid string) {
 
 func FindFile(c *gin.Context) {
 	// 获取文件名
-	filename := c.Param("filename")
+	filename := strings.TrimPrefix(c.Param("filename"), "/")
 
 	served := false
 	statics.Range(func(_, value any) bool {

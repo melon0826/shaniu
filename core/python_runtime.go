@@ -190,6 +190,24 @@ func pythonPluginPathEnv(runtimePath string) string {
 	return value
 }
 
+func pythonRuntimeEnvVars(runtimePath string) []string {
+	env := []string{
+		"PYTHONPATH=" + pythonPluginPathEnv(runtimePath),
+		"PYTHONUNBUFFERED=1",
+	}
+	if cacheDir, err := ensurePythonBytecodeCacheDir(); err == nil {
+		env = append(env, "PYTHONPYCACHEPREFIX="+cacheDir)
+	} else {
+		env = append(env, "PYTHONDONTWRITEBYTECODE=1")
+	}
+	return env
+}
+
+func ensurePythonBytecodeCacheDir() (string, error) {
+	dir := filepath.Join(pythonPackagesDir(), "pycache")
+	return dir, os.MkdirAll(dir, 0755)
+}
+
 func registerPythonPluginConfigSchema(path, uuid string) error {
 	if strings.TrimSpace(path) == "" || strings.TrimSpace(uuid) == "" {
 		return errors.New("插件路径或 UUID 为空")
@@ -219,9 +237,9 @@ func registerPythonPluginConfigSchema(path, uuid string) error {
 	cmd := exec.CommandContext(ctx, bin, cmdArgs...)
 	cmd.Dir = nodePluginWorkDir(path)
 	cmd.Env = append(os.Environ(),
-		"PYTHONPATH="+pythonPluginPathEnv(pythonPath),
-		"PYTHONDONTWRITEBYTECODE=1",
-		"PYTHONUNBUFFERED=1",
+		pythonRuntimeEnvVars(pythonPath)...,
+	)
+	cmd.Env = append(cmd.Env,
 		"PLUGIN_ID="+uuid,
 		"PLUGIN_CONFIG_JSON="+string(utils.JsonMarshal(getPluginUserConfig(uuid))),
 		"SHANIU_CONFIG_REGISTER_ONLY=true",

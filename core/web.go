@@ -104,7 +104,7 @@ func initWeb() {
 	Server.Use(Cors())
 	Server.Use(SecurityHeaders())
 	Server.Use(gzip.Gzip(gzip.DefaultCompression))
-	Server.GET("/api/file/:filename", FindFile)
+	Server.GET("/api/file/*filename", FindFile)
 	Server.GET("/api/decode/:random", Base642Binary)
 
 	Server.GET("/api/plugins/download", func(c *gin.Context) {
@@ -260,32 +260,27 @@ func initWeb() {
 			}
 		}
 		c.String(404, "页面被喵咪劫走了") //
-		//开启代理模式
-
-		// handleHTTP(c.Writer, c.Request)
 	})
 
-	port := normalizeHTTPPort(shaniu.GetString("port"))
+	port, normalizedPort := canonicalHTTPPortValue(shaniu.GetString("port"))
 	if port == 8080 && strings.TrimSpace(shaniu.GetString("port")) == "" {
 		shaniu.Set("port", 8080)
-	} else if stored := strings.TrimSpace(shaniu.GetString("port")); stored != fmt.Sprint(port) && stored != fmt.Sprintf("d:%d", port) {
+	} else if stored := strings.TrimSpace(shaniu.GetString("port")); stored != normalizedPort && stored != fmt.Sprintf("d:%d", port) {
 		shaniu.Set("port", port)
 	}
 	srvs := []*http.Server{{
-		Addr:    ":" + fmt.Sprint(port),
+		Addr:    ":" + normalizedPort,
 		Handler: Server,
 	}}
 
 	storage.Watch(shaniu, "port", func(old, new, key string) *storage.Final {
-		port := normalizeHTTPPort(new)
-		normalized := fmt.Sprint(port)
+		port, normalized := canonicalHTTPPortValue(new)
 		if normalizeHTTPPort(old) == port {
+			if strings.TrimSpace(new) != normalized {
+				return &storage.Final{Now: normalized}
+			}
 			return nil
 		}
-		if strings.TrimSpace(new) != normalized && strings.TrimSpace(new) != fmt.Sprintf("d:%d", port) {
-			shaniu.Set("port", port)
-		}
-		// console.Log("port", new)
 		srv := &http.Server{
 			Addr:    ":" + normalized,
 			Handler: Server,
@@ -310,12 +305,12 @@ func initWeb() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			if err := srvs[0].Shutdown(ctx); err == nil {
-				logs.Info("Http服务(%v)关闭", old)
+				logs.Info("Http服务(%v)关闭", normalizeHTTPPort(old))
 			}
 			srvs = srvs[1:]
 		}
 		return &storage.Final{
-			Now: new,
+			Now: normalized,
 		}
 	})
 
@@ -419,6 +414,11 @@ func normalizeHTTPPort(value string) int {
 		}
 	}
 	return 8080
+}
+
+func canonicalHTTPPortValue(value string) (int, string) {
+	port := normalizeHTTPPort(value)
+	return port, fmt.Sprint(port)
 }
 
 type Req struct {
