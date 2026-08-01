@@ -1,3 +1,12 @@
+# shaniu docker-compose 配置
+#
+# 国内 NAS 若无法直连 ghcr.io（网络超时/连接失败），把 image 换成加速源：
+#   image: ghcr.dockerproxy.net/melon0826/shaniu:latest
+# 注意：加速源镜像名拉取后，容器内的 shaniu 仍是原版，功能完全一致。
+#
+# 更新到最新版本（必须显式 pull + 强制重建，光 up -d 不会拉新镜像）：
+#   docker compose pull
+#   docker compose up -d --force-recreate
 services:
   shaniu:
     image: ghcr.io/melon0826/shaniu:latest
