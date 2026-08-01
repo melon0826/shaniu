@@ -11,6 +11,8 @@ RUN mkdir -p core/admin && cd frontend && npm run build
 FROM golang:1.26.5-bookworm AS builder
 WORKDIR /src
 
+ARG VERSION=dev
+
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
@@ -22,7 +24,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 go build \
     -trimpath \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X github.com/melon0826/shaniu/core.compiled_at=${VERSION}" \
     -o /out/shaniu .
 
 FROM node:24-bookworm-slim
@@ -46,6 +48,9 @@ COPY --from=builder /out/shaniu /app/shaniu
 COPY --from=builder /src/proto3/shaniu.js /app/proto3/shaniu.js
 COPY --from=builder /src/proto3/shaniu.d.ts /app/proto3/shaniu.d.ts
 COPY --from=builder /src/proto3/srpc.js /app/proto3/srpc.js
+COPY --from=builder /src/proto3/shaniu.py /app/proto3/shaniu.py
+COPY --from=builder /src/proto3/srpc_pb2.py /app/proto3/srpc_pb2.py
+COPY --from=builder /src/proto3/srpc_pb2_grpc.py /app/proto3/srpc_pb2_grpc.py
 
 ENV TZ=Asia/Shanghai \
     SHANIU_DATA_PATH=/data \

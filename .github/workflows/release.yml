@@ -153,27 +153,25 @@ jobs:
           dockerhub_image="docker.io/melon0826/shaniu"
           ghcr_image="ghcr.io/melon0826/shaniu"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
-          echo "dockerhub_image=${dockerhub_image}" >> "${GITHUB_OUTPUT}"
           {
-            echo "docker_tags<<EOF"
-            echo "${dockerhub_image}:${version}"
+            echo "ghcr_tags<<EOF"
             echo "${ghcr_image}:${version}"
             if [[ "${publish_latest}" == "true" ]]; then
-              echo "${dockerhub_image}:latest"
               echo "${ghcr_image}:latest"
+            fi
+            echo "EOF"
+          } >> "${GITHUB_OUTPUT}"
+          {
+            echo "dockerhub_tags<<EOF"
+            echo "${dockerhub_image}:${version}"
+            if [[ "${publish_latest}" == "true" ]]; then
+              echo "${dockerhub_image}:latest"
             fi
             echo "EOF"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
-        with:
-          registry: docker.io
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
@@ -182,7 +180,18 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Log in to Docker Hub
+        if: ${{ env.DOCKER_USERNAME != '' && env.DOCKER_PASSWORD != '' }}
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
+        with:
+          registry: docker.io
+          username: ${{ env.DOCKER_USERNAME }}
+          password: ${{ env.DOCKER_PASSWORD }}
+
+      - name: Build and push image (GHCR)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
@@ -192,7 +201,27 @@ jobs:
             VERSION=${{ steps.vars.outputs.version }}
           cache-from: type=gha,scope=shaniu-docker
           cache-to: type=gha,mode=max,scope=shaniu-docker
-          tags: ${{ steps.vars.outputs.docker_tags }}
+          tags: ${{ steps.vars.outputs.ghcr_tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.vars.outputs.version }}
+
+      - name: Build and push image (Docker Hub)
+        if: ${{ env.DOCKER_USERNAME != '' && env.DOCKER_PASSWORD != '' }}
+        env:
+          DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
+          DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.vars.outputs.version }}
+          cache-from: type=gha,scope=shaniu-docker
+          cache-to: type=gha,mode=max,scope=shaniu-docker
+          tags: ${{ steps.vars.outputs.dockerhub_tags }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
