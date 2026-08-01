@@ -549,7 +549,7 @@ class QingLong:
         return result.get("data", result)
 
 
-class SmallCat:
+class YybGo:
     def __init__(self, options):
         self.id = _runtime_panel_index(options)
         self.uuid = ""
@@ -560,9 +560,9 @@ class SmallCat:
     async def _ready(self):
         if self.panel is not None:
             return
-        panels = await _read_runtime_panels("smallcat_panels")
+        panels = await _read_runtime_panels("yybgo_panels")
         if self.id < 1 or self.id > len(panels):
-            raise RuntimeError(f"smallcat 编号 {self.id or ''} 不存在")
+            raise RuntimeError(f"yyb-go 编号 {self.id or ''} 不存在")
         self.panel = panels[self.id - 1]
         self.uuid = self.panel.get("id", "")
         self.name = self.panel.get("name", "")
@@ -577,6 +577,9 @@ class SmallCat:
             body,
         )
 
+    async def _post(self, path, options=None):
+        return await self.request("POST", path, dict(options or {}))
+
     async def createQr(self, qr_type):
         return await self.request("POST", "/api/qr/start", qr_type if isinstance(qr_type, dict) else {"type": qr_type})
 
@@ -584,25 +587,86 @@ class SmallCat:
         return await self.request("GET", "/api/qr/status", None, {"uuid": uuid})
 
     async def addUser(self, options):
-        return await self.request("POST", "/api/accounts/add", options or {})
+        return await self._post("/api/accounts/add", options)
+
+    async def rescanUser(self, options):
+        return await self._post("/api/accounts/rescan", options)
 
     async def userList(self):
         return await self.request("GET", "/api/accounts")
 
+    async def checkUsers(self, options):
+        return await self._post("/api/accounts/status", options)
+
+    async def setUserRemark(self, options):
+        return await self._post("/api/accounts/remark", options)
+
+    async def setUserDisabled(self, options):
+        return await self._post("/api/accounts/disable", options)
+
+    async def deleteUser(self, options):
+        return await self._post("/api/accounts/delete", options)
+
+    async def proxyList(self):
+        return await self.request("GET", "/api/proxies")
+
+    async def testProxy(self, options):
+        return await self._post("/api/proxies/test", options)
+
+    async def addProxy(self, options):
+        return await self._post("/api/proxies/add", options)
+
+    async def deleteProxy(self, options):
+        return await self._post("/api/proxies/delete", options)
+
+    async def creditBalance(self):
+        return await self.request("GET", "/credits/balance")
+
+    async def creditLedger(self, query=None):
+        params = {"limit": 50} if query is None else ({"limit": query} if isinstance(query, (int, float)) else query)
+        return await self.request("GET", "/credits/ledger", None, params)
+
     async def getCode(self, options):
-        return await self.request("POST", "/wx/code", dict(options or {}))
+        return await self._post("/wx/code", options)
+
+    async def getSession(self, options):
+        return await self._post("/wx/getsession", options)
+
+    async def refreshSession(self, options):
+        return await self._post("/wx/refresh", options)
 
     async def getUserInfo(self, options):
-        return await self.request("POST", "/wx/getuserinfo", dict(options or {}))
+        return await self._post("/wx/getuserinfo", options)
+
+    async def getEncryptKey(self, options):
+        return await self._post("/wx/encryptkey", options)
 
     async def getPhoneNumber(self, options):
-        return await self.request("POST", "/wx/getphonenumber", dict(options or {}))
+        return await self._post("/wx/getphonenumber", options)
+
+    async def cloud(self, options):
+        return await self._post("/wx/cloud", options)
+
+    async def gateway(self, options):
+        return await self._post("/wx/gateway", options)
 
     async def qrCodeAuth(self, options):
-        return await self.request("POST", "/wx/qrcodeauth", dict(options or {}))
+        return await self._post("/wx/qrcodeauth", options)
 
     async def oAuth(self, options):
-        return await self.request("POST", "/wx/oauth", dict(options or {}))
+        return await self._post("/wx/oauth", options)
+
+    async def translateLink(self, options):
+        return await self._post("/wx/translatelink", options)
+
+    async def autoAuth(self, options):
+        return await self._post("/wx/autoauth", options)
+
+    async def appMsgExt(self, options):
+        return await self._post("/wx/appmsgext", options)
+
+    async def appMsgLike(self, options):
+        return await self._post("/wx/appmsglike", options)
 
 
 class DaiDai:

@@ -1,4 +1,4 @@
-export const SHANIU_VERSION = '0.2.8';
+export const SHANIU_VERSION = '1.0.0';
 
 declare global {
   interface Window {
